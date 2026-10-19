@@ -1,0 +1,14 @@
+.git
+frontend/
+backend/storage/reports/*
+!backend/storage/reports/.gitkeep
+backend/storage/staging/*
+!backend/storage/staging/.gitkeep
+backend/staytrack.db
+*.db
+*.sqlite3
+.venv
+venv
+__pycache__
+.pytest_cache
+Raw Data/
