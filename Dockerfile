@@ -22,8 +22,9 @@ WORKDIR /app/backend
 RUN mkdir -p storage/reports storage/staging
 
 ENV PYTHONPATH=/app/backend
-ENV PORT=8000
 
-EXPOSE 8000
+# Expose Render standard port (10000) and local port (8000)
+EXPOSE 10000 8000
 
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Bind to Render's injected $PORT (defaults to 10000 on Render)
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-10000}"]

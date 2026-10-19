@@ -18,8 +18,11 @@ from app.api.api_v1 import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize DB on startup
-    init_db()
+    # Initialize DB on startup (safely caught so server never hangs if DB is connecting)
+    try:
+        init_db()
+    except Exception as e:
+        print(f"[Lifespan Warning] Database initialization deferred: {e}")
     yield
 
 app = FastAPI(
@@ -29,13 +32,23 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS configuration
+# CORS configuration - supports local dev, Vercel production and preview URLs
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://stay-track-eight.vercel.app",
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:3000",
+        "*"
+    ],
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=600,
 )
 
 # API Routes

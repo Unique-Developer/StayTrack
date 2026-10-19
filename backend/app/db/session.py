@@ -9,10 +9,12 @@ if db_url.startswith("postgres://"):
 elif db_url.startswith("postgresql://") and not db_url.startswith("postgresql+"):
     db_url = db_url.replace("postgresql://", "postgresql+psycopg2://", 1)
 
-# If SQLite, use connect_args check_same_thread=False
+# Connection arguments per database dialect
 connect_args = {}
 if db_url.startswith("sqlite"):
     connect_args = {"check_same_thread": False}
+else:
+    connect_args = {"connect_timeout": 10}
 
 engine = create_engine(
     db_url,
