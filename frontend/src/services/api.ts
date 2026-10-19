@@ -14,6 +14,24 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL
   ? `${String(import.meta.env.VITE_API_BASE_URL).replace(/\/$/, '')}/api/v1`
   : '/api/v1';
 
+async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit, timeoutMs = 35000): Promise<Response> {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: init?.signal || controller.signal,
+    });
+  } catch (err: any) {
+    if (err.name === 'AbortError') {
+      throw new Error('Backend request timed out. The server on Render may still be waking up from sleep or deploying.');
+    }
+    throw err;
+  } finally {
+    clearTimeout(id);
+  }
+}
+
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let errorMsg = 'An error occurred';
@@ -31,7 +49,7 @@ async function handleResponse<T>(res: Response): Promise<T> {
 export const api = {
   // Dashboard
   async getDashboardSummary(): Promise<DashboardSummary> {
-    const res = await fetch(`${API_BASE}/dashboard/summary`);
+    const res = await fetchWithTimeout(`${API_BASE}/dashboard/summary`);
     return handleResponse<DashboardSummary>(res);
   },
 
@@ -39,7 +57,7 @@ export const api = {
   async previewReports(files: File[]): Promise<ReportPreviewFile[]> {
     const formData = new FormData();
     files.forEach(f => formData.append('files', f));
-    const res = await fetch(`${API_BASE}/reports/preview`, {
+    const res = await fetchWithTimeout(`${API_BASE}/reports/preview`, {
       method: 'POST',
       body: formData,
     });
@@ -54,7 +72,7 @@ export const api = {
       records: PreviewRecord[];
     }>;
   }): Promise<{ success: boolean; message: string; imported_report_ids: number[] }> {
-    const res = await fetch(`${API_BASE}/reports/commit`, {
+    const res = await fetchWithTimeout(`${API_BASE}/reports/commit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -63,7 +81,7 @@ export const api = {
   },
 
   async getReports(): Promise<ReportItem[]> {
-    const res = await fetch(`${API_BASE}/reports`);
+    const res = await fetchWithTimeout(`${API_BASE}/reports`);
     return handleResponse<ReportItem[]>(res);
   },
 
@@ -72,7 +90,7 @@ export const api = {
   },
 
   async deleteReport(reportId: number): Promise<{ success: boolean; message: string }> {
-    const res = await fetch(`${API_BASE}/reports/${reportId}`, {
+    const res = await fetchWithTimeout(`${API_BASE}/reports/${reportId}`, {
       method: 'DELETE',
     });
     return handleResponse(res);
@@ -97,7 +115,7 @@ export const api = {
         searchParams.append(k, String(v));
       }
     });
-    const res = await fetch(`${API_BASE}/guests/monitoring?${searchParams.toString()}`);
+    const res = await fetchWithTimeout(`${API_BASE}/guests/monitoring?${searchParams.toString()}`);
     return handleResponse<GuestMonitoringResponse>(res);
   },
 
@@ -122,7 +140,7 @@ export const api = {
   },
 
   async getGuestDetail(identityId: number): Promise<GuestDetail> {
-    const res = await fetch(`${API_BASE}/guests/${identityId}`);
+    const res = await fetchWithTimeout(`${API_BASE}/guests/${identityId}`);
     return handleResponse<GuestDetail>(res);
   },
 
@@ -142,7 +160,7 @@ export const api = {
         searchParams.append(k, String(v));
       }
     });
-    const res = await fetch(`${API_BASE}/records?${searchParams.toString()}`);
+    const res = await fetchWithTimeout(`${API_BASE}/records?${searchParams.toString()}`);
     return handleResponse(res);
   },
 
@@ -156,19 +174,19 @@ export const api = {
 
   // Review Queue
   async getReviewQueue(): Promise<ReviewQueueData> {
-    const res = await fetch(`${API_BASE}/review/queue`);
+    const res = await fetchWithTimeout(`${API_BASE}/review/queue`);
     return handleResponse<ReviewQueueData>(res);
   },
 
   async confirmIdentityMatch(matchId: number): Promise<{ success: boolean; message: string }> {
-    const res = await fetch(`${API_BASE}/review/matches/${matchId}/confirm`, {
+    const res = await fetchWithTimeout(`${API_BASE}/review/matches/${matchId}/confirm`, {
       method: 'POST',
     });
     return handleResponse(res);
   },
 
   async rejectIdentityMatch(matchId: number): Promise<{ success: boolean; message: string }> {
-    const res = await fetch(`${API_BASE}/review/matches/${matchId}/reject`, {
+    const res = await fetchWithTimeout(`${API_BASE}/review/matches/${matchId}/reject`, {
       method: 'POST',
     });
     return handleResponse(res);
@@ -179,7 +197,7 @@ export const api = {
     action: 'verify' | 'reject',
     notes?: string
   ): Promise<{ success: boolean; status: string }> {
-    const res = await fetch(`${API_BASE}/review/assessments/${assessmentId}/verify`, {
+    const res = await fetchWithTimeout(`${API_BASE}/review/assessments/${assessmentId}/verify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action, notes }),
@@ -189,12 +207,12 @@ export const api = {
 
   // Settings
   async getSettings(): Promise<SystemSettings> {
-    const res = await fetch(`${API_BASE}/settings`);
+    const res = await fetchWithTimeout(`${API_BASE}/settings`);
     return handleResponse<SystemSettings>(res);
   },
 
   async updateSettings(data: Partial<SystemSettings>): Promise<SystemSettings> {
-    const res = await fetch(`${API_BASE}/settings`, {
+    const res = await fetchWithTimeout(`${API_BASE}/settings`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -215,7 +233,7 @@ export const api = {
         searchParams.append(k, String(v));
       }
     });
-    const res = await fetch(`${API_BASE}/audit/logs?${searchParams.toString()}`);
+    const res = await fetchWithTimeout(`${API_BASE}/audit/logs?${searchParams.toString()}`);
     return handleResponse(res);
   },
 };
