@@ -3,7 +3,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://staytrack-backend.onrender.com/api/:path*"
+      "destination": "https://staytrack-o6ah.onrender.com/api/:path*"
     },
     {
       "source": "/(.*)",

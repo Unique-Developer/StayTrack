@@ -90,7 +90,7 @@ export function App() {
                   {isRefreshing ? 'Retrying...' : 'Retry Connection'}
                 </button>
                 <a
-                  href="https://staytrack-backend.onrender.com/health"
+                  href="https://staytrack-o6ah.onrender.com/health"
                   target="_blank"
                   rel="noreferrer"
                   className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-medium rounded-lg transition-colors border border-slate-700"
