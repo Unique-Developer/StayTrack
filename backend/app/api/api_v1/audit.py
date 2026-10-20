@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.db.models import AuditLog, User
+from app.api.deps import get_current_user
 
 router = APIRouter(prefix="/audit", tags=["audit"])
 
@@ -12,7 +13,8 @@ def get_audit_logs(
     action: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     query = db.query(AuditLog).order_by(AuditLog.created_at.desc())
     if action:

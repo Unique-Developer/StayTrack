@@ -7,7 +7,8 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, desc, asc
 from app.db.session import get_db
-from app.db.models import GuestRecord, UploadedReport, GuestIdentity
+from app.db.models import GuestRecord, UploadedReport, GuestIdentity, User
+from app.api.deps import get_current_user
 
 router = APIRouter(prefix="/records", tags=["records"])
 
@@ -20,7 +21,8 @@ def get_all_records(
     page_size: int = Query(50, ge=1, le=200),
     sort_by: str = Query("check_in_date"),
     sort_order: str = Query("desc"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     query = (
         db.query(GuestRecord)
@@ -102,7 +104,8 @@ def export_all_records(
     search: Optional[str] = Query(None),
     report_date: Optional[str] = Query(None),
     room: Optional[str] = Query(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     query = (
         db.query(GuestRecord)

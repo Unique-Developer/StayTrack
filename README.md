@@ -123,9 +123,15 @@ Open your browser to: **`http://localhost:5173`** (proxies `/api` requests to ba
 
 ---
 
-## 5. Daily Operator Workflow
+## 5. Authentication & Daily Operator Workflow
 
-1. **Log in**: Default credentials: `admin@staytrack.local` / `StayTrack2026!`.
+### Default Credentials
+StayTrack protects all report uploads, audit records, and operational settings behind authenticated access. Initialized credentials:
+- **Admin Email**: `admin@staytrack.local` (or alias `admin@staytrack.com`)
+- **Password**: `StayTrack2026!` (Configurable via `DEFAULT_ADMIN_PASSWORD` in `.env`)
+
+### Daily Operator Workflow
+1. **Log in**: Enter manager credentials on the secure login screen.
 2. **Open Dashboard**: View rolling window coverage, total imported reports, Mode A and Mode B qualifying guests, and any missing calendar dates.
 3. **Upload Daily Report**:
    - Navigate to **"Upload Reports"** or click **"Upload Daily Report"**.

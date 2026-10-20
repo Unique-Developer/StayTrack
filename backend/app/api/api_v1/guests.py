@@ -14,7 +14,8 @@ from app.db.models import (
     StayAssessment,
     GuestIdentityMatch,
     UploadedReport,
-    Property
+    Property,
+    User
 )
 from app.schemas.models import GuestMonitoringResponse, GuestAssessmentItem
 from app.api.deps import get_current_user, log_audit
@@ -34,7 +35,8 @@ def get_guest_monitoring(
     sort_order: str = Query("desc", description="asc or desc"),
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=1, le=100),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     query = (
         db.query(StayAssessment)
@@ -119,7 +121,8 @@ def export_guests(
     mode: Optional[str] = Query(None),
     verification_status: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Export filtered assessments to CSV format."""
     query = (
@@ -189,7 +192,8 @@ def export_guests_pdf(
     search: Optional[str] = Query(None, description="Filter by guest name, room, or confirmation"),
     min_nights: int = Query(7, ge=1, description="Minimum continuous nights threshold"),
     property_id: Optional[int] = Query(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """
     Exports a high-fidelity PDF report of continuous long-stay guests,
@@ -231,7 +235,11 @@ def export_guests_pdf(
 
 
 @router.get("/{identity_id}")
-def get_guest_detail(identity_id: int, db: Session = Depends(get_db)):
+def get_guest_detail(
+    identity_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """
     Returns complete profile and audit timeline for a guest identity:
     - Demographics

@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { LoginPage } from './pages/LoginPage';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { DashboardPage } from './pages/DashboardPage';
@@ -11,8 +13,10 @@ import { SettingsPage } from './pages/SettingsPage';
 import { AuditLogPage } from './pages/AuditLogPage';
 import { api } from './services/api';
 import { DashboardSummary } from './types';
+import { Loader2 } from 'lucide-react';
 
-export function App() {
+function MainApp() {
+  const { user, isAuthenticated, isLoading, logout } = useAuth();
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
   const [summary, setSummary] = useState<DashboardSummary | undefined>(undefined);
   const [reviewCount, setReviewCount] = useState<number>(0);
@@ -20,6 +24,7 @@ export function App() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadDashboardData = async () => {
+    if (!isAuthenticated) return;
     setIsRefreshing(true);
     setLoadError(null);
     try {
@@ -37,8 +42,28 @@ export function App() {
   };
 
   useEffect(() => {
-    loadDashboardData();
-  }, []);
+    if (isAuthenticated) {
+      loadDashboardData();
+    }
+  }, [isAuthenticated]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-slate-100">
+        <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center text-slate-950 font-black text-2xl shadow-xl shadow-amber-500/25 mb-4 animate-pulse">
+          S6
+        </div>
+        <div className="flex items-center gap-2.5 text-sm font-medium text-slate-400">
+          <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+          <span>Verifying StayTrack session...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated || !user) {
+    return <LoginPage />;
+  }
 
   const handleUploadComplete = () => {
     loadDashboardData();
@@ -52,6 +77,8 @@ export function App() {
         currentTab={currentTab}
         onSelectTab={setCurrentTab}
         reviewCount={reviewCount}
+        user={user}
+        onLogout={logout}
       />
 
       {/* Main Content Area */}
@@ -61,6 +88,8 @@ export function App() {
           onUploadClick={() => setCurrentTab('upload')}
           onRefresh={loadDashboardData}
           isRefreshing={isRefreshing}
+          user={user}
+          onLogout={logout}
         />
 
         <main className="flex-1 p-6 md:p-8 overflow-y-auto">
@@ -85,7 +114,7 @@ export function App() {
                 <button
                   onClick={loadDashboardData}
                   disabled={isRefreshing}
-                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors shadow-lg shadow-blue-900/30 disabled:opacity-50"
+                  className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors shadow-lg shadow-blue-900/30 disabled:opacity-50 cursor-pointer"
                 >
                   {isRefreshing ? 'Retrying...' : 'Retry Connection'}
                 </button>
@@ -112,6 +141,14 @@ export function App() {
         </main>
       </div>
     </div>
+  );
+}
+
+export function App() {
+  return (
+    <AuthProvider>
+      <MainApp />
+    </AuthProvider>
   );
 }
 

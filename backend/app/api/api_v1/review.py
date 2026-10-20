@@ -16,7 +16,10 @@ from app.api.deps import get_current_user, log_audit
 router = APIRouter(prefix="/review", tags=["review"])
 
 @router.get("/queue")
-def get_review_queue(db: Session = Depends(get_db)):
+def get_review_queue(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """
     Returns items requiring motel owner verification:
     1. Proposed identity matches (e.g. same name across different rooms/dates)

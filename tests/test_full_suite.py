@@ -8,6 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.config import settings
+from app.core.security import hash_password, create_access_token
 from app.db.session import Base, get_db
 from app.db.models import (
     User,
@@ -48,7 +49,13 @@ def db_session():
     # Seed property and admin
     prop = Property(name="STUDIO 6 - STAFFORD, VA", property_code="3756", timezone="America/New_York")
     db.add(prop)
-    admin = User(email="admin@staytrack.local", hashed_password="pw", full_name="Admin", role="admin")
+    admin = User(
+        email="admin@staytrack.local",
+        hashed_password=hash_password("StayTrack2026!"),
+        full_name="Admin",
+        role="admin",
+        is_active=True
+    )
     db.add(admin)
     db.commit()
 
@@ -66,7 +73,10 @@ def client(db_session):
             pass
 
     app.dependency_overrides[get_db] = override_get_db
+    admin = db_session.query(User).filter(User.email == "admin@staytrack.local").first()
+    token = create_access_token(subject=admin.id)
     with TestClient(app) as c:
+        c.headers["Authorization"] = f"Bearer {token}"
         yield c
     app.dependency_overrides.clear()
 
@@ -337,3 +347,61 @@ def test_end_to_end_import_and_analytics(client, db_session):
     records_res = client.get("/api/v1/records")
     assert records_res.status_code == 200
     assert records_res.json()["total"] == 47  # 14 + 11 + 12 + 10 = 47
+
+
+# -------------------------------------------------------------------------
+# Test 6: Auth Flow and Unauthenticated Protection
+# -------------------------------------------------------------------------
+def test_auth_flow_and_security_guard(db_session):
+    def override_get_db():
+        try:
+            yield db_session
+        finally:
+            pass
+
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as unauth_client:
+        # 1. Unauthenticated requests should be rejected with 401
+        r_dash = unauth_client.get("/api/v1/dashboard/summary")
+        assert r_dash.status_code == 401
+        assert "credentials not provided" in r_dash.json()["detail"].lower()
+
+        r_upload = unauth_client.post("/api/v1/reports/preview")
+        assert r_upload.status_code == 401
+
+        r_guests = unauth_client.get("/api/v1/guests/monitoring")
+        assert r_guests.status_code == 401
+
+        r_records = unauth_client.get("/api/v1/records")
+        assert r_records.status_code == 401
+
+        # 2. Login with bad credentials should fail
+        bad_login = unauth_client.post("/api/v1/auth/login", json={
+            "email": "admin@staytrack.local",
+            "password": "wrongpassword"
+        })
+        assert bad_login.status_code == 401
+
+        # 3. Login with correct credentials should succeed
+        login_res = unauth_client.post("/api/v1/auth/login", json={
+            "email": "admin@staytrack.local",
+            "password": "StayTrack2026!"
+        })
+        assert login_res.status_code == 200
+        token_data = login_res.json()
+        assert "access_token" in token_data
+        assert token_data["user"]["email"] == "admin@staytrack.local"
+
+        token = token_data["access_token"]
+
+        # 4. Authenticated request with Bearer token should succeed
+        auth_client = TestClient(app)
+        auth_client.headers["Authorization"] = f"Bearer {token}"
+        r_auth = auth_client.get("/api/v1/dashboard/summary")
+        assert r_auth.status_code == 200
+
+        # 5. Token query parameter for export/download should succeed
+        r_query_auth = unauth_client.get(f"/api/v1/guests/export?token={token}")
+        assert r_query_auth.status_code == 200
+
+    app.dependency_overrides.clear()

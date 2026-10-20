@@ -10,7 +10,8 @@ from app.db.models import (
     GuestRecord,
     StayAssessment,
     ReportingCalendar,
-    Property
+    Property,
+    User
 )
 from app.schemas.models import DashboardSummary
 from app.analytics.rolling_window import calculate_rolling_window
@@ -19,7 +20,10 @@ from app.api.deps import get_current_user
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 @router.get("/summary", response_model=DashboardSummary)
-def get_dashboard_summary(db: Session = Depends(get_db)):
+def get_dashboard_summary(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     prop = db.query(Property).first()
     property_id = prop.id if prop else 1
 

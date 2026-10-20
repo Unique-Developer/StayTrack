@@ -14,6 +14,8 @@ class Settings:
     SECRET_KEY: str = os.getenv("SECRET_KEY", "staytrack-secret-encryption-key-for-jwt-and-sessions-2026")
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
+    DEFAULT_ADMIN_EMAIL: str = os.getenv("DEFAULT_ADMIN_EMAIL", "admin@staytrack.local")
+    DEFAULT_ADMIN_PASSWORD: str = os.getenv("DEFAULT_ADMIN_PASSWORD", "StayTrack2026!")
     
     # Database
     DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{BASE_DIR / 'staytrack.db'}")

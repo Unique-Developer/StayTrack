@@ -6,6 +6,17 @@ export interface User {
   is_active: boolean;
 }
 
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface TokenResponse {
+  access_token: string;
+  token_type: string;
+  user: User;
+}
+
 export interface DashboardSummary {
   total_reports_imported: number;
   reporting_dates_covered: number;

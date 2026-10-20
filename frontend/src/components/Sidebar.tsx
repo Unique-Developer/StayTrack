@@ -9,17 +9,25 @@ import {
   Settings,
   ShieldCheck,
   Building2,
-  Calendar,
-  Sparkles
+  LogOut
 } from 'lucide-react';
+import { User } from '../types';
 
 interface SidebarProps {
   currentTab: string;
   onSelectTab: (tab: string) => void;
   reviewCount: number;
+  user?: User | null;
+  onLogout?: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, reviewCount }) => {
+export const Sidebar: React.FC<SidebarProps> = ({
+  currentTab,
+  onSelectTab,
+  reviewCount,
+  user,
+  onLogout
+}) => {
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'upload', label: 'Upload Reports', icon: UploadCloud },
@@ -35,6 +43,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, revie
     { id: 'settings', label: 'Settings', icon: Settings },
     { id: 'audit', label: 'Audit Log', icon: ShieldCheck },
   ];
+
+  const getInitials = (name?: string) => {
+    if (!name) return 'U';
+    const parts = name.trim().split(' ');
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+    return name.slice(0, 2).toUpperCase();
+  };
 
   return (
     <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col flex-shrink-0 min-h-screen text-slate-300">
@@ -77,7 +94,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, revie
             <button
               key={item.id}
               onClick={() => onSelectTab(item.id)}
-              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all ${
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all cursor-pointer ${
                 isActive
                   ? 'bg-amber-500 text-slate-950 font-semibold shadow-md shadow-amber-500/20'
                   : 'text-slate-300 hover:text-white hover:bg-slate-800/70'
@@ -101,16 +118,33 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentTab, onSelectTab, revie
         })}
       </nav>
 
-      {/* Footer / Operator Info */}
-      <div className="p-4 border-t border-slate-800 bg-slate-950/40">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-amber-400 text-xs">
-            PP
+      {/* Footer / Operator Info & Logout */}
+      <div className="p-4 border-t border-slate-800 bg-slate-950/40 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3 overflow-hidden">
+            <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-amber-400 text-xs shrink-0 select-none">
+              {getInitials(user?.full_name)}
+            </div>
+            <div className="overflow-hidden flex-1">
+              <div className="text-xs font-semibold text-slate-200 truncate">
+                {user?.full_name || 'Motel Staff'}
+              </div>
+              <div className="text-[11px] text-slate-500 truncate capitalize">
+                {user?.role || 'User'} ({user?.email || 'Logged in'})
+              </div>
+            </div>
           </div>
-          <div className="overflow-hidden flex-1">
-            <div className="text-xs font-semibold text-slate-200 truncate">Pratik Patel</div>
-            <div className="text-[11px] text-slate-500 truncate">Motel Owner (Admin)</div>
-          </div>
+
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer shrink-0"
+              title="Sign Out"
+              aria-label="Sign Out"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
     </aside>

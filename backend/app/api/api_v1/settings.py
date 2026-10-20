@@ -10,7 +10,10 @@ from app.api.deps import get_current_user, log_audit
 router = APIRouter(prefix="/settings", tags=["settings"])
 
 @router.get("", response_model=SettingsResponse)
-def get_settings(db: Session = Depends(get_db)):
+def get_settings(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     def get_val(k: str, default: str) -> str:
         s = db.query(SystemSetting).filter(SystemSetting.key == k).first()
         return s.value if s else default
