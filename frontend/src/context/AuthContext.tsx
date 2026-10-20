@@ -79,14 +79,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, []);
 
   const login = async (email: string, password: string): Promise<void> => {
-    setIsLoading(true);
-    try {
-      const res = await api.login({ email, password });
-      setToken(res.access_token);
-      setUser(res.user);
-    } finally {
-      setIsLoading(false);
-    }
+    const res = await api.login({ email, password });
+    setToken(res.access_token);
+    setUser(res.user);
   };
 
   const logout = () => {

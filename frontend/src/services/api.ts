@@ -96,8 +96,8 @@ async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit, ti
   }
 }
 
-async function handleResponse<T>(res: Response): Promise<T> {
-  if (res.status === 401) {
+async function handleResponse<T>(res: Response, isAuthEndpoint = false): Promise<T> {
+  if (res.status === 401 && !isAuthEndpoint) {
     clearStoredAuth();
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('staytrack:unauthorized'));
@@ -125,7 +125,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    const data = await handleResponse<TokenResponse>(res);
+    const data = await handleResponse<TokenResponse>(res, true);
     setStoredToken(data.access_token);
     setStoredUser(data.user);
     return data;
