@@ -10,6 +10,7 @@ from app.db.models import (
     StayAssessment,
     User
 )
+from app.schemas.models import BatchMatchActionRequest
 from app.analytics.stay_detector import recalculate_all_analytics
 from app.api.deps import get_current_user, log_audit
 
@@ -85,6 +86,140 @@ def get_review_queue(
         "uncertain_assessments_count": len(assessments_list),
         "proposed_matches": matches_list,
         "uncertain_assessments": assessments_list
+    }
+
+
+
+@router.post("/matches/batch-confirm")
+def batch_confirm_matches(
+    payload: BatchMatchActionRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Confirms multiple guest identity matches at once (bulk merge).
+    Recalculates stay analytics only once for affected properties.
+    """
+    if not payload.match_ids:
+        raise HTTPException(status_code=400, detail="No match IDs provided.")
+
+    matches = (
+        db.query(GuestIdentityMatch)
+        .filter(
+            GuestIdentityMatch.id.in_(payload.match_ids),
+            GuestIdentityMatch.status == "proposed"
+        )
+        .all()
+    )
+
+    if not matches:
+        raise HTTPException(status_code=404, detail="No matching proposed records found to merge.")
+
+    affected_prop_ids = set()
+    confirmed_count = 0
+
+    for m in matches:
+        m.status = "confirmed"
+        m.reviewed_by_user_id = current_user.id
+        m.review_notes = (m.review_notes or "") + " [Batch confirmed by owner]"
+        prop_id = m.guest_identity.property_id if m.guest_identity else 1
+        affected_prop_ids.add(prop_id)
+        confirmed_count += 1
+
+    db.commit()
+
+    for prop_id in affected_prop_ids:
+        recalculate_all_analytics(db, prop_id)
+
+    log_audit(
+        db,
+        current_user.id,
+        "batch_confirm_matches",
+        "guest_identity_match",
+        f"{confirmed_count} matches",
+        {"match_ids": [m.id for m in matches], "confirmed_count": confirmed_count}
+    )
+
+    return {
+        "success": True,
+        "count": confirmed_count,
+        "message": f"Successfully merged {confirmed_count} customer identity match(es)."
+    }
+
+
+@router.post("/matches/batch-reject")
+def batch_reject_and_split_matches(
+    payload: BatchMatchActionRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Splits multiple proposed matches into separate individual guest profiles (bulk split).
+    Recalculates stay analytics only once for affected properties.
+    """
+    if not payload.match_ids:
+        raise HTTPException(status_code=400, detail="No match IDs provided.")
+
+    matches = (
+        db.query(GuestIdentityMatch)
+        .filter(
+            GuestIdentityMatch.id.in_(payload.match_ids),
+            GuestIdentityMatch.status == "proposed"
+        )
+        .all()
+    )
+
+    if not matches:
+        raise HTTPException(status_code=404, detail="No matching proposed records found to split.")
+
+    affected_prop_ids = set()
+    split_count = 0
+    split_details = []
+
+    for m in matches:
+        rec = m.guest_record
+        if not rec:
+            continue
+
+        prop_id = m.guest_identity.property_id if m.guest_identity else 1
+        affected_prop_ids.add(prop_id)
+
+        new_identity = GuestIdentity(
+            property_id=prop_id,
+            primary_first_name=rec.first_name or "",
+            primary_last_name=rec.last_name or "",
+            normalized_name=rec.normalized_name,
+            verification_status="verified",
+            notes=f"Created via manual batch split from identity #{m.guest_identity_id}."
+        )
+        db.add(new_identity)
+        db.flush()
+
+        rec.guest_identity_id = new_identity.id
+        m.status = "rejected"
+        m.reviewed_by_user_id = current_user.id
+        m.review_notes = f"Rejected merge by owner (batch). Split into identity #{new_identity.id}."
+        split_count += 1
+        split_details.append({"match_id": m.id, "new_identity_id": new_identity.id, "record_id": rec.id})
+
+    db.commit()
+
+    for prop_id in affected_prop_ids:
+        recalculate_all_analytics(db, prop_id)
+
+    log_audit(
+        db,
+        current_user.id,
+        "batch_split_matches",
+        "guest_identity_match",
+        f"{split_count} matches",
+        {"split_count": split_count, "items": split_details}
+    )
+
+    return {
+        "success": True,
+        "count": split_count,
+        "message": f"Successfully split {split_count} identity match(es) into separate customer profiles."
     }
 
 

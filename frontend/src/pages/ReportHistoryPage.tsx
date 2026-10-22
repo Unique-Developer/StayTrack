@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { History, Download, Trash2, Calendar, FileText, CheckCircle2, RefreshCw } from 'lucide-react';
+import { History, Download, Trash2, Calendar, FileText, CheckCircle2, RefreshCw, Clock } from 'lucide-react';
 import { api } from '../services/api';
 import { ReportItem } from '../types';
+import { formatNYDateTime } from '../utils/dateUtils';
 
 export const ReportHistoryPage: React.FC = () => {
   const [reports, setReports] = useState<ReportItem[]>([]);
@@ -47,13 +48,20 @@ export const ReportHistoryPage: React.FC = () => {
           </p>
         </div>
 
-        <button
-          onClick={loadReports}
-          className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
-          title="Refresh"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-amber-400' : ''}`} />
-        </button>
+        <div className="flex items-center gap-3">
+          <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-mono">
+            <Clock className="w-3.5 h-3.5 text-amber-400" />
+            <span>Timezone: New York (EDT/EST)</span>
+          </div>
+
+          <button
+            onClick={loadReports}
+            className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+            title="Refresh"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-amber-400' : ''}`} />
+          </button>
+        </div>
       </div>
 
       <div className="rounded-xl bg-slate-900 border border-slate-800 overflow-hidden shadow-xl">
@@ -62,12 +70,12 @@ export const ReportHistoryPage: React.FC = () => {
             <thead className="bg-slate-950/80 text-slate-400 font-semibold uppercase tracking-wider border-b border-slate-800">
               <tr>
                 <th className="py-3 px-4">Filename</th>
-                <th className="py-3 px-4">Reporting Date</th>
+                <th className="py-3 px-4">Reporting Date & PMS Run</th>
                 <th className="py-3 px-4">Property</th>
                 <th className="py-3 px-4">Records</th>
                 <th className="py-3 px-4">File Size</th>
                 <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4">Imported At</th>
+                <th className="py-3 px-4">Imported At (NY Time)</th>
                 <th className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
@@ -85,7 +93,15 @@ export const ReportHistoryPage: React.FC = () => {
                       <FileText className="w-4 h-4 text-amber-400 shrink-0" />
                       <span>{r.original_filename}</span>
                     </td>
-                    <td className="py-3 px-4 font-mono text-amber-300 font-semibold">{r.report_date}</td>
+                    <td className="py-3 px-4">
+                      <div className="font-mono text-amber-300 font-semibold">{r.report_date}</div>
+                      {r.report_run_datetime && (
+                        <div className="text-[11px] text-slate-400 font-mono mt-0.5 flex items-center gap-1" title="PMS Report Run Date & Time (Local Eastern Time)">
+                          <span className="text-slate-500 font-normal">PMS:</span>
+                          <span className="text-slate-300">{r.report_run_datetime}</span>
+                        </div>
+                      )}
+                    </td>
                     <td className="py-3 px-4 text-slate-300">{r.property_name}</td>
                     <td className="py-3 px-4 font-mono text-white font-bold">{r.valid_rows_count} valid</td>
                     <td className="py-3 px-4 font-mono text-slate-400">{(r.file_size_bytes / 1024).toFixed(1)} KB</td>
@@ -94,7 +110,9 @@ export const ReportHistoryPage: React.FC = () => {
                         {r.status}
                       </span>
                     </td>
-                    <td className="py-3 px-4 text-slate-400">{new Date(r.created_at).toLocaleString()}</td>
+                    <td className="py-3 px-4 font-mono text-slate-300 text-xs">
+                      {formatNYDateTime(r.created_at)}
+                    </td>
                     <td className="py-3 px-4 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <a

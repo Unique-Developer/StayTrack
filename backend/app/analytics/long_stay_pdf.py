@@ -11,6 +11,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.pdfgen import canvas
 
 from app.db.models import Property, GuestIdentity, GuestRecord, UploadedReport
+from app.core.time_utils import format_ny_now_str
 
 
 def get_continuous_stays(
@@ -251,7 +252,7 @@ class ExecutiveBannerFlowable(Flowable):
         # Subtitle
         self.canv.setFont("Helvetica", 8)
         self.canv.setFillColor(colors.HexColor("#94a3b8"))
-        now_str = datetime.datetime.now().strftime("%b %d, %Y • %I:%M %p")
+        now_str = format_ny_now_str("%b %d, %Y • %I:%M %p %Z")
         self.canv.drawString(0, self.height - 44, f"Continuous Stay & Extended Occupancy Verification   |   Generated: {now_str}")
 
         # Right side: Prominent Total Count Card

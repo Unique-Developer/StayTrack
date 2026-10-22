@@ -54,13 +54,40 @@ def parse_header_metadata(page: pdfplumber.page.Page, tables: List[Any]) -> Tupl
     run_datetime = None
     generated_by = None
 
+    def extract_run_dt(text: str) -> Optional[str]:
+        if not text:
+            return None
+        m_date = re.search(r'Report Run Date:\s*([A-Za-z0-9\s,]+?)(?=\n|Report Run Time|User:|$)', text, re.IGNORECASE)
+        m_time = re.search(r'Report Run Time:\s*([0-9:]+\s*(?:AM|PM)?)', text, re.IGNORECASE)
+        if m_date and m_time:
+            d_val = clean_whitespace(m_date.group(1))
+            t_val = clean_whitespace(m_time.group(1))
+            for fmt in ("%b %d %Y %I:%M %p", "%b %d, %Y %I:%M %p", "%Y-%m-%d %I:%M %p"):
+                try:
+                    dt = datetime.datetime.strptime(f"{d_val} {t_val}", fmt)
+                    return dt.strftime("%b %d, %Y • %I:%M %p")
+                except ValueError:
+                    pass
+            return f"{d_val} • {t_val}"
+        elif m_date:
+            d_val = clean_whitespace(m_date.group(1))
+            for fmt in ("%b %d %Y", "%b %d, %Y", "%Y-%m-%d"):
+                try:
+                    dt = datetime.datetime.strptime(d_val, fmt)
+                    return dt.strftime("%b %d, %Y")
+                except ValueError:
+                    pass
+            return d_val
+        return None
+
     # First check tables[0] if present
     if tables and len(tables) > 0 and len(tables[0]) > 0:
         header_row = tables[0][0]
         for cell in header_row:
             if not cell:
                 continue
-            lines = [clean_whitespace(l) for l in str(cell).split('\n') if clean_whitespace(l)]
+            cell_str = str(cell)
+            lines = [clean_whitespace(l) for l in cell_str.split('\n') if clean_whitespace(l)]
             
             # Check for property lines
             for line in lines:
@@ -74,10 +101,11 @@ def parse_header_metadata(page: pdfplumber.page.Page, tables: List[Any]) -> Tupl
                     d = parse_date_flexible(date_part)
                     if d and not report_date:
                         report_date = d
-                if "Report Run Date:" in line:
-                    run_datetime = line
                 if "User:" in line:
                     generated_by = line.split("User:", 1)[1].strip()
+
+            if not run_datetime:
+                run_datetime = extract_run_dt(cell_str)
 
     # Fallback / reinforcement from raw page text
     raw_text = page.extract_text() or ""
@@ -85,6 +113,9 @@ def parse_header_metadata(page: pdfplumber.page.Page, tables: List[Any]) -> Tupl
         match_date = re.search(r'Date:\s*([A-Za-z]+\s+\d{1,2},?\s+\d{4})', raw_text)
         if match_date:
             report_date = parse_date_flexible(match_date.group(1))
+
+    if not run_datetime:
+        run_datetime = extract_run_dt(raw_text)
 
     if not property_code:
         match_code = re.search(r'\b(\d{4})\b', raw_text)

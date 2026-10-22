@@ -52,9 +52,11 @@ def update_settings(
         else:
             db.add(SystemSetting(key=k, value=v, description="Configured setting"))
 
+    prop = db.query(Property).first()
+    if prop and req.property_timezone is not None:
+        prop.timezone = str(req.property_timezone)
     db.commit()
 
-    prop = db.query(Property).first()
     prop_id = prop.id if prop else 1
     recalculate_all_analytics(db, prop_id)
 

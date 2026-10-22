@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import { ReportPreviewFile, PreviewRecord } from '../types';
+import { getTodayNYDateString } from '../utils/dateUtils';
 
 interface UploadPageProps {
   onImportComplete: () => void;
@@ -83,7 +84,9 @@ export const UploadPage: React.FC<UploadPageProps> = ({ onImportComplete }) => {
       const payload = {
         files: previews.map((p) => ({
           temp_file_id: p.temp_file_id,
-          report_date: p.report_date || new Date().toISOString().split('T')[0],
+          original_filename: p.original_filename,
+          report_date: p.report_date || getTodayNYDateString(),
+          report_run_datetime: p.report_run_datetime,
           replace_existing_id: p.existing_report_for_date_id,
           records: p.records,
         })),
@@ -215,12 +218,18 @@ export const UploadPage: React.FC<UploadPageProps> = ({ onImportComplete }) => {
                   </div>
                   <div>
                     <div className="text-sm font-bold text-white">{preview.original_filename}</div>
-                    <div className="text-xs text-slate-400 flex items-center gap-3 mt-0.5">
+                    <div className="text-xs text-slate-400 flex flex-wrap items-center gap-2 mt-0.5">
                       <span>{preview.property_name || 'STUDIO 6 - STAFFORD, VA'}</span>
                       <span>•</span>
                       <span>Property #{preview.property_code || '3756'}</span>
                       <span>•</span>
                       <span>{preview.total_rows} row(s) extracted</span>
+                      {preview.report_run_datetime && (
+                        <>
+                          <span>•</span>
+                          <span className="text-amber-400 font-mono font-medium">PMS Run: {preview.report_run_datetime}</span>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { ShieldCheck, Search, Filter, RefreshCw } from 'lucide-react';
+import { ShieldCheck, Search, Filter, RefreshCw, Clock } from 'lucide-react';
 import { api } from '../services/api';
 import { AuditLogItem } from '../types';
+import { formatNYDateTime } from '../utils/dateUtils';
 
 export const AuditLogPage: React.FC = () => {
   const [logs, setLogs] = useState<AuditLogItem[]>([]);
@@ -71,7 +72,7 @@ export const AuditLogPage: React.FC = () => {
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-950/80 text-slate-400 font-semibold uppercase tracking-wider border-b border-slate-800">
               <tr>
-                <th className="py-3 px-4">Timestamp</th>
+                <th className="py-3 px-4">Timestamp (NY Time)</th>
                 <th className="py-3 px-4">Operator / User</th>
                 <th className="py-3 px-4">Action</th>
                 <th className="py-3 px-4">Entity</th>
@@ -88,7 +89,7 @@ export const AuditLogPage: React.FC = () => {
               ) : logs.length > 0 ? (
                 logs.map((l) => (
                   <tr key={l.id} className="hover:bg-slate-800/30 transition-colors">
-                    <td className="py-3 px-4 font-mono text-slate-400">{new Date(l.created_at).toLocaleString()}</td>
+                    <td className="py-3 px-4 font-mono text-slate-300 text-xs">{formatNYDateTime(l.created_at)}</td>
                     <td className="py-3 px-4 font-semibold text-white">{l.user_email}</td>
                     <td className="py-3 px-4">
                       <span className="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">

@@ -165,7 +165,9 @@ export const api = {
   async commitReports(payload: {
     files: Array<{
       temp_file_id: string;
+      original_filename?: string;
       report_date: string;
+      report_run_datetime?: string;
       replace_existing_id?: number;
       records: PreviewRecord[];
     }>;
@@ -248,6 +250,20 @@ export const api = {
     return handleResponse<GuestDetail>(res);
   },
 
+  async mergeGuests(payload: { primary_identity_id: number; secondary_identity_ids: number[] }): Promise<{
+    success: boolean;
+    primary_identity_id: number;
+    merged_count: number;
+    message: string;
+  }> {
+    const res = await fetchWithTimeout(`${API_BASE}/guests/merge`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    return handleResponse(res);
+  },
+
   // All Records
   async getAllRecords(params: {
     search?: string;
@@ -291,9 +307,27 @@ export const api = {
     return handleResponse(res);
   },
 
+  async batchConfirmMatches(matchIds: number[]): Promise<{ success: boolean; count: number; message: string }> {
+    const res = await fetchWithTimeout(`${API_BASE}/review/matches/batch-confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ match_ids: matchIds }),
+    });
+    return handleResponse(res);
+  },
+
   async rejectIdentityMatch(matchId: number): Promise<{ success: boolean; message: string }> {
     const res = await fetchWithTimeout(`${API_BASE}/review/matches/${matchId}/reject`, {
       method: 'POST',
+    });
+    return handleResponse(res);
+  },
+
+  async batchRejectMatches(matchIds: number[]): Promise<{ success: boolean; count: number; message: string }> {
+    const res = await fetchWithTimeout(`${API_BASE}/review/matches/batch-reject`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ match_ids: matchIds }),
     });
     return handleResponse(res);
   },

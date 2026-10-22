@@ -207,10 +207,12 @@ export interface ReportItem {
   original_filename: string;
   file_size_bytes: number;
   report_date: string;
+  report_run_datetime?: string;
   status: string;
   total_rows_extracted: number;
   valid_rows_count: number;
   created_at: string;
+  created_at_ny?: string;
   is_active: boolean;
 }
 

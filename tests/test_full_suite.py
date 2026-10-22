@@ -201,6 +201,83 @@ def test_identity_matching_and_review(db_session, client):
     assert gr2.guest_identity_id != id1.id  # Separated into new identity!
 
 
+def test_batch_identity_matching_and_merge(db_session, client):
+    prop = db_session.query(Property).first()
+
+    # Create primary identity
+    rec_base = {
+        "confirmation_number": "3756BASE1",
+        "room_number": "100",
+        "first_name": "ALICE",
+        "last_name": "SMITH",
+        "normalized_name": "ALICE SMITH",
+        "check_in_date": "2026-10-01"
+    }
+    id_base, m_base = match_or_create_guest_identity(db_session, prop.id, rec_base)
+    gr_base = GuestRecord(
+        report_id=1,
+        guest_identity_id=id_base.id,
+        confirmation_number="3756BASE1",
+        room_number="100",
+        normalized_name="ALICE SMITH",
+        source_page=1,
+        source_row_index=1
+    )
+    db_session.add(gr_base)
+    db_session.commit()
+
+    # Create 3 proposed matches for same guest in different rooms
+    match_ids = []
+    for i in range(1, 4):
+        rec_cand = {
+            "confirmation_number": f"3756CAND{i}",
+            "room_number": f"20{i}",
+            "normalized_name": "ALICE SMITH",
+            "first_name": "ALICE",
+            "last_name": "SMITH"
+        }
+        _, m_cand = match_or_create_guest_identity(db_session, prop.id, rec_cand)
+        gr_cand = GuestRecord(
+            report_id=1,
+            guest_identity_id=id_base.id,
+            confirmation_number=f"3756CAND{i}",
+            room_number=f"20{i}",
+            normalized_name="ALICE SMITH",
+            source_page=1,
+            source_row_index=i + 1
+        )
+        db_session.add(gr_cand)
+        db_session.flush()
+        m_cand.guest_record_id = gr_cand.id
+        db_session.add(m_cand)
+        db_session.commit()
+        match_ids.append(m_cand.id)
+
+    # Test batch confirm for first 2 matches
+    res_batch_confirm = client.post("/api/v1/review/matches/batch-confirm", json={"match_ids": match_ids[:2]})
+    assert res_batch_confirm.status_code == 200
+    data_confirm = res_batch_confirm.json()
+    assert data_confirm["success"] is True
+    assert data_confirm["count"] == 2
+
+    # Check database status
+    m1 = db_session.query(GuestIdentityMatch).filter(GuestIdentityMatch.id == match_ids[0]).first()
+    m2 = db_session.query(GuestIdentityMatch).filter(GuestIdentityMatch.id == match_ids[1]).first()
+    assert m1.status == "confirmed"
+    assert m2.status == "confirmed"
+
+    # Test batch reject/split for the 3rd match
+    res_batch_reject = client.post("/api/v1/review/matches/batch-reject", json={"match_ids": [match_ids[2]]})
+    assert res_batch_reject.status_code == 200
+    data_reject = res_batch_reject.json()
+    assert data_reject["success"] is True
+    assert data_reject["count"] == 1
+
+    m3 = db_session.query(GuestIdentityMatch).filter(GuestIdentityMatch.id == match_ids[2]).first()
+    assert m3.status == "rejected"
+    assert m3.guest_record.guest_identity_id != id_base.id
+
+
 # -------------------------------------------------------------------------
 # Test 4: Rolling Window: Day 1, Day 2, Day 4, Missing Dates, and Day 31+
 # -------------------------------------------------------------------------
@@ -405,3 +482,126 @@ def test_auth_flow_and_security_guard(db_session):
         assert r_query_auth.status_code == 200
 
     app.dependency_overrides.clear()
+
+
+def test_guest_identities_merge(db_session, client):
+    prop = db_session.query(Property).first()
+
+    # Create two separate identities
+    g1 = GuestIdentity(
+        property_id=prop.id,
+        primary_first_name="BOB",
+        primary_last_name="WILLIAMS",
+        normalized_name="BOB WILLIAMS",
+        verification_status="verified"
+    )
+    g2 = GuestIdentity(
+        property_id=prop.id,
+        primary_first_name="ROBERT",
+        primary_last_name="WILLIAMS",
+        normalized_name="ROBERT WILLIAMS",
+        verification_status="provisional"
+    )
+    db_session.add_all([g1, g2])
+    db_session.flush()
+
+    rec1 = GuestRecord(
+        report_id=1,
+        guest_identity_id=g1.id,
+        confirmation_number="CONF1",
+        room_number="101",
+        normalized_name="BOB WILLIAMS",
+        source_page=1,
+        source_row_index=1
+    )
+    rec2 = GuestRecord(
+        report_id=1,
+        guest_identity_id=g2.id,
+        confirmation_number="CONF2",
+        room_number="102",
+        normalized_name="ROBERT WILLIAMS",
+        source_page=1,
+        source_row_index=2
+    )
+    db_session.add_all([rec1, rec2])
+    db_session.commit()
+
+    # Merge g2 into g1
+    res = client.post("/api/v1/guests/merge", json={
+        "primary_identity_id": g1.id,
+        "secondary_identity_ids": [g2.id]
+    })
+    assert res.status_code == 200
+    data = res.json()
+    assert data["success"] is True
+    assert data["primary_identity_id"] == g1.id
+    assert data["merged_count"] == 1
+
+    # Verify rec2 is now associated with g1
+    db_session.refresh(rec2)
+    assert rec2.guest_identity_id == g1.id
+
+    # Verify g2 is deleted
+    assert db_session.query(GuestIdentity).filter(GuestIdentity.id == g2.id).first() is None
+
+
+def test_new_york_time_and_report_history(db_session, client):
+    from app.core.time_utils import to_utc_iso, to_ny_iso, to_ny_display_str, get_ny_now
+    import datetime
+
+    # 1. Test UTC ISO formatting with explicit Z
+    naive_dt = datetime.datetime(2026, 10, 22, 14, 30, 0)
+    utc_iso = to_utc_iso(naive_dt)
+    assert utc_iso == "2026-10-22T14:30:00Z"
+
+    # 2. Test NY display string formatting (14:30 UTC is 10:30 AM EDT in New York)
+    ny_str = to_ny_display_str(naive_dt)
+    assert "10:30 AM" in ny_str
+    assert "EDT" in ny_str or "EST" in ny_str
+
+    # 3. Test PDF parser extracts Report Run Date and Time
+    sample_pdf = os.path.join(os.path.dirname(__file__), "fixtures", "sample_reports", "departures_2026-10-01.pdf")
+    if os.path.exists(sample_pdf):
+        parsed = parse_departures_pdf(sample_pdf)
+        assert parsed.report_run_datetime is not None
+        assert "Oct 15, 2026" in parsed.report_run_datetime
+        assert "07:38 AM" in parsed.report_run_datetime
+
+    # 4. Insert report and test reports API returns report_run_datetime and ISO timestamps with Z
+    prop = db_session.query(Property).first()
+    rep = UploadedReport(
+        property_id=prop.id,
+        original_filename="departures_2026-10-01.pdf",
+        stored_filename="mock.pdf",
+        file_hash="mockhash",
+        file_size_bytes=1000,
+        report_type="departures",
+        report_date=datetime.date(2026, 10, 1),
+        report_run_datetime="Oct 15, 2026 • 07:38 AM",
+        status="completed",
+        total_rows_extracted=5,
+        valid_rows_count=5,
+        is_active=True
+    )
+    db_session.add(rep)
+    db_session.commit()
+
+    res = client.get("/api/v1/reports")
+    assert res.status_code == 200
+    reports_data = res.json()
+    assert len(reports_data) > 0
+    first_rep = reports_data[0]
+    assert first_rep["report_run_datetime"] == "Oct 15, 2026 • 07:38 AM"
+    assert first_rep["created_at"].endswith("Z")
+    assert "created_at_ny" in first_rep
+
+    # 5. Test dashboard summary returns ISO timestamps with Z
+    res_dash = client.get("/api/v1/dashboard/summary")
+    assert res_dash.status_code == 200
+    dash_data = res_dash.json()
+    if dash_data.get("latest_import"):
+        assert dash_data["latest_import"]["imported_at"].endswith("Z")
+    if dash_data.get("recent_reports"):
+        assert dash_data["recent_reports"][0]["created_at"].endswith("Z")
+
+

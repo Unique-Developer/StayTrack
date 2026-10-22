@@ -1,6 +1,7 @@
-import React from 'react';
-import { Calendar, UploadCloud, RefreshCw, AlertCircle, LogOut, User as UserIcon } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Calendar, UploadCloud, RefreshCw, AlertCircle, LogOut, Clock, User as UserIcon } from 'lucide-react';
 import { DashboardSummary, User } from '../types';
+import { getCurrentNYTimeDisplay } from '../utils/dateUtils';
 
 interface HeaderProps {
   summary?: DashboardSummary;
@@ -19,6 +20,15 @@ export const Header: React.FC<HeaderProps> = ({
   user,
   onLogout
 }) => {
+  const [nyTime, setNyTime] = useState<string>(() => getCurrentNYTimeDisplay());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNyTime(getCurrentNYTimeDisplay());
+    }, 10000);
+    return () => clearInterval(timer);
+  }, []);
+
   const getInitials = (name?: string) => {
     if (!name) return 'U';
     const parts = name.trim().split(' ');
@@ -53,6 +63,13 @@ export const Header: React.FC<HeaderProps> = ({
             <span>{summary.missing_reporting_dates_count} missing date(s) in span</span>
           </div>
         )}
+
+        {/* Live New York Time Badge */}
+        <div className="hidden xl:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800/80 border border-slate-700/60 text-xs font-mono text-slate-300" title="Motel Local Time (America/New_York)">
+          <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          <span className="text-slate-400 font-medium">NY Time:</span>
+          <span className="font-semibold text-amber-300">{nyTime}</span>
+        </div>
       </div>
 
       {/* Action Buttons & User Profile */}

@@ -17,8 +17,10 @@ from app.db.models import (
     Property,
     User
 )
-from app.schemas.models import GuestMonitoringResponse, GuestAssessmentItem
+from app.schemas.models import GuestMonitoringResponse, GuestAssessmentItem, MergeIdentitiesRequest
+from app.core.time_utils import to_utc_iso, get_ny_now
 from app.api.deps import get_current_user, log_audit
+from app.analytics.stay_detector import recalculate_all_analytics
 from app.analytics.long_stay_pdf import get_continuous_stays, generate_long_stay_pdf
 
 router = APIRouter(prefix="/guests", tags=["guests"])
@@ -222,7 +224,7 @@ def export_guests_pdf(
         counts=counts
     )
 
-    today_str = datetime.date.today().isoformat()
+    today_str = get_ny_now().date().isoformat()
     filename = f"staytrack_long_stay_monitoring_{today_str}.pdf"
 
     return Response(
@@ -297,7 +299,7 @@ def get_guest_detail(
             "confidence_score": m.confidence_score,
             "status": m.status,
             "review_notes": m.review_notes,
-            "created_at": m.created_at.isoformat()
+            "created_at": to_utc_iso(m.created_at) or m.created_at.isoformat()
         }
         for m in matches
     ]
@@ -332,3 +334,63 @@ def get_guest_detail(
         "matches": match_history,
         "assessments": assessment_data
     }
+
+
+@router.post("/merge")
+def merge_guest_identities(
+    payload: MergeIdentitiesRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Merges multiple guest identity profiles into a single primary identity.
+    Reassigns all records, recalculates continuous stays, and updates audit history.
+    """
+    primary = db.query(GuestIdentity).filter(GuestIdentity.id == payload.primary_identity_id).first()
+    if not primary:
+        raise HTTPException(status_code=404, detail="Primary guest identity not found")
+
+    secondary_ids = [sid for sid in payload.secondary_identity_ids if sid != payload.primary_identity_id]
+    if not secondary_ids:
+        raise HTTPException(status_code=400, detail="No valid secondary identities provided for merge")
+
+    secondaries = db.query(GuestIdentity).filter(GuestIdentity.id.in_(secondary_ids)).all()
+    if not secondaries:
+        raise HTTPException(status_code=404, detail="No secondary guest identities found")
+
+    # Reassign all GuestRecord rows
+    db.query(GuestRecord).filter(GuestRecord.guest_identity_id.in_(secondary_ids)).update(
+        {GuestRecord.guest_identity_id: primary.id},
+        synchronize_session=False
+    )
+
+    # Reassign all GuestIdentityMatch rows
+    db.query(GuestIdentityMatch).filter(GuestIdentityMatch.guest_identity_id.in_(secondary_ids)).update(
+        {GuestIdentityMatch.guest_identity_id: primary.id},
+        synchronize_session=False
+    )
+
+    # Remove secondaries
+    for sec in secondaries:
+        db.delete(sec)
+
+    db.commit()
+
+    recalculate_all_analytics(db, primary.property_id)
+
+    log_audit(
+        db,
+        current_user.id,
+        "merge_guest_identities",
+        "guest_identity",
+        str(primary.id),
+        {"merged_identity_ids": secondary_ids, "primary_identity_id": primary.id}
+    )
+
+    return {
+        "success": True,
+        "primary_identity_id": primary.id,
+        "merged_count": len(secondaries),
+        "message": f"Successfully merged {len(secondaries)} customer profiles into #{primary.id} ({primary.normalized_name})."
+    }
+

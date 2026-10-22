@@ -15,6 +15,7 @@ from app.db.models import (
 )
 from app.schemas.models import DashboardSummary
 from app.analytics.rolling_window import calculate_rolling_window
+from app.core.time_utils import to_utc_iso
 from app.api.deps import get_current_user
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -94,7 +95,7 @@ def get_dashboard_summary(
             "filename": latest_report_obj.original_filename,
             "report_date": latest_report_obj.report_date.isoformat(),
             "records_count": latest_report_obj.valid_rows_count,
-            "imported_at": latest_report_obj.created_at.isoformat()
+            "imported_at": to_utc_iso(latest_report_obj.created_at) or latest_report_obj.created_at.isoformat()
         }
 
     # Recent 5 reports
@@ -112,7 +113,7 @@ def get_dashboard_summary(
             "report_date": r.report_date.isoformat(),
             "status": r.status,
             "rows": r.valid_rows_count,
-            "created_at": r.created_at.isoformat()
+            "created_at": to_utc_iso(r.created_at) or r.created_at.isoformat()
         }
         for r in recent_objs
     ]
@@ -153,7 +154,7 @@ def get_dashboard_summary(
             "id": e.id,
             "filename": e.original_filename,
             "error": e.error_message,
-            "created_at": e.created_at.isoformat()
+            "created_at": to_utc_iso(e.created_at) or e.created_at.isoformat()
         }
         for e in error_objs
     ]

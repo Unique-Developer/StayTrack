@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.db.models import AuditLog, User
+from app.core.time_utils import to_utc_iso
 from app.api.deps import get_current_user
 
 router = APIRouter(prefix="/audit", tags=["audit"])
@@ -40,7 +41,7 @@ def get_audit_logs(
             "entity_id": l.entity_id,
             "details": details_obj,
             "ip_address": l.ip_address,
-            "created_at": l.created_at.isoformat()
+            "created_at": to_utc_iso(l.created_at) or l.created_at.isoformat()
         })
 
     return {

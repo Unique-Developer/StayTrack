@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { X, Calendar, User, Home, Hash, Clock, ShieldCheck, CheckCircle2, AlertTriangle, FileText, ArrowRight } from 'lucide-react';
 import { api } from '../services/api';
 import { GuestDetail } from '../types';
+import { formatNYDateTime } from '../utils/dateUtils';
 
 interface GuestDetailModalProps {
   identityId: number | null;
@@ -201,6 +202,7 @@ export const GuestDetailModal: React.FC<GuestDetailModalProps> = ({ identityId, 
                     <table className="w-full text-left">
                       <thead className="bg-slate-950/80 text-slate-400 font-semibold border-b border-slate-800">
                         <tr>
+                          <th className="py-2.5 px-3">Date (NY Time)</th>
                           <th className="py-2.5 px-3">Match Type</th>
                           <th className="py-2.5 px-3">Confidence</th>
                           <th className="py-2.5 px-3">Status</th>
@@ -210,6 +212,7 @@ export const GuestDetailModal: React.FC<GuestDetailModalProps> = ({ identityId, 
                       <tbody className="divide-y divide-slate-800/60 bg-slate-900/60 text-slate-300">
                         {detail.matches.map((m) => (
                           <tr key={m.id}>
+                            <td className="py-2 px-3 font-mono text-[11px] text-slate-400">{formatNYDateTime(m.created_at)}</td>
                             <td className="py-2 px-3 font-mono text-amber-300">{m.match_type}</td>
                             <td className="py-2 px-3">{(m.confidence_score * 100).toFixed(0)}%</td>
                             <td className="py-2 px-3">

@@ -13,6 +13,7 @@ import {
 import { DashboardSummary } from '../types';
 import { DashboardCards } from '../components/DashboardCards';
 import { TrendChart } from '../components/TrendChart';
+import { formatNYDateTime } from '../utils/dateUtils';
 
 interface DashboardPageProps {
   summary: DashboardSummary;
@@ -75,8 +76,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ summary, onNavigat
                   <span className="text-xs font-semibold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                     Active & Processed
                   </span>
-                  <span className="text-[11px] text-slate-400 font-mono">
-                    {new Date(summary.latest_import.imported_at).toLocaleDateString()}
+                  <span className="text-[11px] text-slate-400 font-mono" title="Processed in America/New_York time">
+                    {formatNYDateTime(summary.latest_import.imported_at)}
                   </span>
                 </div>
 
@@ -141,7 +142,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ summary, onNavigat
                 <th className="py-3 px-4">Reporting Date</th>
                 <th className="py-3 px-4">Records</th>
                 <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4">Imported At</th>
+                <th className="py-3 px-4">Imported At (NY Time)</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60 bg-slate-900/40 text-slate-300">
@@ -156,8 +157,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ summary, onNavigat
                         {r.status}
                       </span>
                     </td>
-                    <td className="py-3 px-4 text-xs text-slate-400">
-                      {new Date(r.created_at).toLocaleString()}
+                    <td className="py-3 px-4 text-xs font-mono text-slate-400">
+                      {formatNYDateTime(r.created_at)}
                     </td>
                   </tr>
                 ))

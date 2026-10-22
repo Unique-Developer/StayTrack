@@ -27,6 +27,7 @@ from app.schemas.models import (
     ReportCommitRequest,
     ReportResponse
 )
+from app.core.time_utils import to_utc_iso, to_ny_display_str
 from app.api.deps import get_current_user, log_audit
 
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -156,14 +157,16 @@ async def commit_reports(
         stored_name, file_hash, file_size = storage_service.save_file(file_bytes, f"departures_{rep_date.isoformat()}.pdf")
 
         # Create UploadedReport
+        orig_filename = item.original_filename or f"departures_{rep_date.isoformat()}.pdf"
         report = UploadedReport(
             property_id=item.property_id or property_id,
-            original_filename=f"departures_{rep_date.isoformat()}.pdf",
+            original_filename=orig_filename,
             stored_filename=stored_name,
             file_hash=file_hash,
             file_size_bytes=file_size,
             report_type="departures",
             report_date=rep_date,
+            report_run_datetime=item.report_run_datetime,
             status="completed",
             total_rows_extracted=len(item.records),
             valid_rows_count=len(item.records),
@@ -260,10 +263,12 @@ def get_reports(
                 original_filename=r.original_filename,
                 file_size_bytes=r.file_size_bytes,
                 report_date=r.report_date.isoformat(),
+                report_run_datetime=r.report_run_datetime,
                 status=r.status,
                 total_rows_extracted=r.total_rows_extracted,
                 valid_rows_count=r.valid_rows_count,
-                created_at=r.created_at.isoformat(),
+                created_at=to_utc_iso(r.created_at) or r.created_at.isoformat(),
+                created_at_ny=to_ny_display_str(r.created_at),
                 is_active=r.is_active
             )
         )

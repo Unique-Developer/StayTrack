@@ -66,7 +66,9 @@ class ReportPreviewFile(BaseModel):
 class ReportCommitItem(BaseModel):
     temp_file_id: str
     property_id: Optional[int] = None
+    original_filename: Optional[str] = None
     report_date: str
+    report_run_datetime: Optional[str] = None
     replace_existing_id: Optional[int] = None
     records: List[PreviewRecord]
 
@@ -80,10 +82,12 @@ class ReportResponse(BaseModel):
     original_filename: str
     file_size_bytes: int
     report_date: str
+    report_run_datetime: Optional[str] = None
     status: str
     total_rows_extracted: int
     valid_rows_count: int
     created_at: str
+    created_at_ny: Optional[str] = None
     is_active: bool
 
 # Dashboard Schemas
@@ -142,3 +146,16 @@ class SettingsUpdateRequest(BaseModel):
     min_appearance_days: Optional[int] = None
     departure_convention: Optional[str] = None
     property_timezone: Optional[str] = None
+
+# Review Queue Schemas
+class BatchMatchActionRequest(BaseModel):
+    match_ids: List[int]
+
+class BatchMatchResponse(BaseModel):
+    success: bool
+    count: int
+    message: str
+
+class MergeIdentitiesRequest(BaseModel):
+    primary_identity_id: int
+    secondary_identity_ids: List[int]

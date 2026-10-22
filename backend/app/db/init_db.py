@@ -68,6 +68,32 @@ def init_db(db: Session = None):
             if not setting:
                 db.add(SystemSetting(key=key, value=val, description=desc))
 
+        # 4. Backfill Report Run Datetimes from stored PDFs if missing
+        from app.db.models import UploadedReport
+        import re
+        reports = db.query(UploadedReport).filter(
+            (UploadedReport.report_run_datetime == None) | 
+            (UploadedReport.report_run_datetime.like("Report Run Date%"))
+        ).all()
+        if reports:
+            import pdfplumber
+            for r in reports:
+                pdf_path = settings.STORAGE_DIR / r.stored_filename
+                if pdf_path.exists():
+                    try:
+                        with pdfplumber.open(pdf_path) as pdf:
+                            txt = pdf.pages[0].extract_text() or ""
+                            m_date = re.search(r'Report Run Date:\s*([A-Za-z0-9\s,]+?)(?=\n|Report Run Time|User:|$)', txt, re.IGNORECASE)
+                            m_time = re.search(r'Report Run Time:\s*([0-9:]+\s*(?:AM|PM)?)', txt, re.IGNORECASE)
+                            if m_date and m_time:
+                                d_str = ' '.join(m_date.group(1).split())
+                                t_str = ' '.join(m_time.group(1).split())
+                                r.report_run_datetime = f"{d_str} • {t_str}"
+                            elif m_date:
+                                r.report_run_datetime = ' '.join(m_date.group(1).split())
+                    except Exception as err:
+                        print(f"[Init DB] Could not backfill report #{r.id}: {err}")
+
         db.commit()
         print("[Init DB] Database initialization completed successfully.")
     except Exception as e:
