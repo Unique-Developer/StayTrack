@@ -308,12 +308,66 @@ export const api = {
   },
 
   async batchConfirmMatches(matchIds: number[]): Promise<{ success: boolean; count: number; message: string }> {
-    const res = await fetchWithTimeout(`${API_BASE}/review/matches/batch-confirm`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ match_ids: matchIds }),
-    });
-    return handleResponse(res);
+    if (!matchIds || matchIds.length === 0) {
+      return { success: true, count: 0, message: 'No records to merge.' };
+    }
+
+    // Optimization: If only 1 match is selected, directly call the individual confirm endpoint
+    // which is guaranteed to be deployed on Render and completely avoids a 404 in the browser console
+    if (matchIds.length === 1) {
+      const res = await api.confirmIdentityMatch(matchIds[0]);
+      return {
+        success: res.success !== false,
+        count: 1,
+        message: res.message || 'Identity match confirmed.',
+      };
+    }
+
+    // For multiple matches, attempt high-performance batch endpoint
+    try {
+      const res = await fetchWithTimeout(`${API_BASE}/review/matches/batch-confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ match_ids: matchIds }),
+      });
+
+      if (res.ok) {
+        return await handleResponse(res);
+      }
+
+      // If backend returns 404 (e.g. Render build still deploying or on older container), fallback
+      if (res.status === 404) {
+        console.warn('Batch confirm endpoint not yet available on server. Falling back to individual match confirmations.');
+        let confirmedCount = 0;
+        for (const id of matchIds) {
+          await api.confirmIdentityMatch(id);
+          confirmedCount++;
+        }
+        return {
+          success: true,
+          count: confirmedCount,
+          message: `Successfully merged and confirmed ${confirmedCount} customer identity match(es).`,
+        };
+      }
+
+      return await handleResponse(res);
+    } catch (err: any) {
+      const msg = String(err?.message || '');
+      if (msg.includes('404') || msg.toLowerCase().includes('not found')) {
+        console.warn('Batch confirm endpoint threw 404. Falling back to individual match confirmations.');
+        let confirmedCount = 0;
+        for (const id of matchIds) {
+          await api.confirmIdentityMatch(id);
+          confirmedCount++;
+        }
+        return {
+          success: true,
+          count: confirmedCount,
+          message: `Successfully merged and confirmed ${confirmedCount} customer identity match(es).`,
+        };
+      }
+      throw err;
+    }
   },
 
   async rejectIdentityMatch(matchId: number): Promise<{ success: boolean; message: string }> {
@@ -324,12 +378,62 @@ export const api = {
   },
 
   async batchRejectMatches(matchIds: number[]): Promise<{ success: boolean; count: number; message: string }> {
-    const res = await fetchWithTimeout(`${API_BASE}/review/matches/batch-reject`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ match_ids: matchIds }),
-    });
-    return handleResponse(res);
+    if (!matchIds || matchIds.length === 0) {
+      return { success: true, count: 0, message: 'No records to split.' };
+    }
+
+    if (matchIds.length === 1) {
+      const res = await api.rejectIdentityMatch(matchIds[0]);
+      return {
+        success: res.success !== false,
+        count: 1,
+        message: res.message || 'Identity split successfully.',
+      };
+    }
+
+    try {
+      const res = await fetchWithTimeout(`${API_BASE}/review/matches/batch-reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ match_ids: matchIds }),
+      });
+
+      if (res.ok) {
+        return await handleResponse(res);
+      }
+
+      if (res.status === 404) {
+        console.warn('Batch reject endpoint not yet available on server. Falling back to individual match splits.');
+        let splitCount = 0;
+        for (const id of matchIds) {
+          await api.rejectIdentityMatch(id);
+          splitCount++;
+        }
+        return {
+          success: true,
+          count: splitCount,
+          message: `Successfully split ${splitCount} identity match(es) into separate customer profiles.`,
+        };
+      }
+
+      return await handleResponse(res);
+    } catch (err: any) {
+      const msg = String(err?.message || '');
+      if (msg.includes('404') || msg.toLowerCase().includes('not found')) {
+        console.warn('Batch reject endpoint threw 404. Falling back to individual match splits.');
+        let splitCount = 0;
+        for (const id of matchIds) {
+          await api.rejectIdentityMatch(id);
+          splitCount++;
+        }
+        return {
+          success: true,
+          count: splitCount,
+          message: `Successfully split ${splitCount} identity match(es) into separate customer profiles.`,
+        };
+      }
+      throw err;
+    }
   },
 
   async verifyAssessment(

@@ -113,7 +113,11 @@ def batch_confirm_matches(
     )
 
     if not matches:
-        raise HTTPException(status_code=404, detail="No matching proposed records found to merge.")
+        return {
+            "success": True,
+            "count": 0,
+            "message": "No pending proposed matches found to merge (records may have already been confirmed)."
+        }
 
     affected_prop_ids = set()
     confirmed_count = 0
@@ -170,7 +174,11 @@ def batch_reject_and_split_matches(
     )
 
     if not matches:
-        raise HTTPException(status_code=404, detail="No matching proposed records found to split.")
+        return {
+            "success": True,
+            "count": 0,
+            "message": "No pending proposed matches found to split (records may have already been processed)."
+        }
 
     affected_prop_ids = set()
     split_count = 0
