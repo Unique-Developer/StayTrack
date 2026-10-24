@@ -1,6 +1,7 @@
 import csv
 import io
 import json
+import logging
 import datetime
 from typing import Optional, List
 from fastapi import APIRouter, Depends, Query, HTTPException
@@ -202,38 +203,46 @@ def export_guests_pdf(
     starting from 30 days+ continuous stay down to lesser continuous stay customers,
     ignoring customers who did not stay continuously in a row.
     """
-    prop = None
-    if property_id:
-        prop = db.query(Property).filter(Property.id == property_id).first()
-    if not prop:
-        prop = db.query(Property).first()
+    try:
+        prop = None
+        if property_id:
+            prop = db.query(Property).filter(Property.id == property_id).first()
+        if not prop:
+            prop = db.query(Property).first()
 
-    pid = prop.id if prop else 1
-    pname = prop.name if prop else "Motel 6"
+        pid = prop.id if prop else 1
+        pname = prop.name if prop else "Motel 6"
 
-    prop_name, stays, counts = get_continuous_stays(
-        db=db,
-        property_id=pid,
-        min_nights=min_nights,
-        search=search
-    )
+        prop_name, stays, counts = get_continuous_stays(
+            db=db,
+            property_id=pid,
+            min_nights=min_nights,
+            search=search
+        )
 
-    pdf_bytes = generate_long_stay_pdf(
-        property_name=pname,
-        stays=stays,
-        counts=counts
-    )
+        pdf_bytes = generate_long_stay_pdf(
+            property_name=pname,
+            stays=stays,
+            counts=counts
+        )
 
-    today_str = get_ny_now().date().isoformat()
-    filename = f"staytrack_long_stay_monitoring_{today_str}.pdf"
+        today_str = get_ny_now().date().isoformat()
+        filename = f"staytrack_long_stay_monitoring_{today_str}.pdf"
 
-    return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={
-            "Content-Disposition": f'inline; filename="{filename}"'
-        }
-    )
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'inline; filename="{filename}"'
+            }
+        )
+    except Exception as e:
+        import traceback
+        logging.error(f"Error generating long stay PDF: {e}\n{traceback.format_exc()}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate long-stay PDF report: {str(e)}"
+        )
 
 
 @router.get("/{identity_id}")

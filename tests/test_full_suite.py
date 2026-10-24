@@ -605,3 +605,57 @@ def test_new_york_time_and_report_history(db_session, client):
         assert dash_data["recent_reports"][0]["created_at"].endswith("Z")
 
 
+def test_export_pdf_with_many_confirmations(client, db_session):
+    """Verify that export-pdf never fails with 500 when guests have dozens of renewals/confirmations."""
+    prop = db_session.query(Property).first()
+    rep = UploadedReport(
+        property_id=prop.id,
+        original_filename="departures_batch.pdf",
+        stored_filename="mock.pdf",
+        file_hash="mockhash_pdf",
+        file_size_bytes=1000,
+        report_type="departures",
+        report_date=datetime.date(2026, 10, 20),
+        status="completed",
+        is_active=True
+    )
+    db_session.add(rep)
+    db_session.commit()
+
+    identity = GuestIdentity(
+        property_id=prop.id,
+        primary_first_name="TRINITY",
+        primary_last_name="GRIFFITH",
+        normalized_name="TRINITY GRIFFITH",
+        verification_status="verified"
+    )
+    db_session.add(identity)
+    db_session.commit()
+
+    # Create 60 continuous daily records
+    base_date = datetime.date(2026, 8, 1)
+    for i in range(60):
+        c_in = base_date + datetime.timedelta(days=i)
+        c_out = c_in + datetime.timedelta(days=1)
+        rec = GuestRecord(
+            report_id=rep.id,
+            guest_identity_id=identity.id,
+            confirmation_number=f"3756AAJ{i:03d}",
+            room_number=f"{150 + (i % 4)}",
+            normalized_name="TRINITY GRIFFITH",
+            check_in_date=c_in,
+            number_of_nights=1,
+            calculated_departure_date=c_out,
+            status="Checked Out"
+        )
+        db_session.add(rec)
+    db_session.commit()
+
+    res = client.get("/api/v1/guests/export-pdf")
+    assert res.status_code == 200
+    assert res.headers["content-type"] == "application/pdf"
+    assert len(res.content) > 1000
+    assert res.content[:4] == b"%PDF"
+
+
+

@@ -411,44 +411,75 @@ class PillTag(Flowable):
 
 
 class ConfGridFlowable(Flowable):
-    """Confirmation numbers arranged in a sleek 2-column tag layout."""
-    def __init__(self, conf_list: List[str], max_width: float = 140):
+    """Confirmation numbers arranged in a sleek 2-column tag layout, capped to prevent row overflow."""
+    def __init__(self, conf_list: List[str], max_width: float = 140, max_tags: int = 4):
         super().__init__()
-        self.conf_list = conf_list or []
+        self.raw_conf_list = [c for c in (conf_list or []) if c]
         self.max_width = max_width
-        self.tag_w = 82
+        self.tag_w = 66
         self.tag_h = 15
         self.gap_x = 5
         self.gap_y = 3.5
 
-        cols = 2 if len(self.conf_list) > 1 else 1
-        n = len(self.conf_list)
-        rows = max(1, (n + cols - 1) // cols) if n > 0 else 1
+        # Format items to display (capped at max_tags)
+        items: List[Tuple[str, bool]] = []  # (text, is_badge)
+        total_confs = len(self.raw_conf_list)
+        if total_confs == 0:
+            items.append(("—", False))
+        elif total_confs <= max_tags:
+            for c in self.raw_conf_list:
+                items.append((str(c), False))
+        else:
+            # Show first 2 confirmations, the latest confirmation, and an overflow badge
+            items.append((str(self.raw_conf_list[0]), False))
+            if max_tags >= 3:
+                items.append((str(self.raw_conf_list[1]), False))
+            if max_tags >= 4:
+                items.append((str(self.raw_conf_list[-1]), False))
+            overflow_count = total_confs - len(items)
+            items.append((f"+{overflow_count} more", True))
+
+        self.display_items = items
+        cols = 2 if len(items) > 1 else 1
+        n = len(items)
+        rows = max(1, (n + cols - 1) // cols)
         self.rows = rows
         self.cols = cols
-        self.total_h = rows * self.tag_h + (rows - 1) * self.gap_y if n > 0 else self.tag_h
+        self.total_h = rows * self.tag_h + (rows - 1) * self.gap_y
 
     def wrap(self, availWidth, availHeight):
         return self.max_width, self.total_h
 
     def draw(self):
-        if not self.conf_list:
+        if not self.display_items:
             return
         self.canv.saveState()
-        for idx, conf in enumerate(self.conf_list):
+        for idx, (text, is_badge) in enumerate(self.display_items):
             r = idx // self.cols
             c = idx % self.cols
             x = c * (self.tag_w + self.gap_x)
             y = self.total_h - ((r + 1) * self.tag_h + r * self.gap_y)
 
-            self.canv.setFillColor(colors.HexColor("#151c2f"))
-            self.canv.setStrokeColor(colors.HexColor("#243152"))
-            self.canv.setLineWidth(0.8)
-            self.canv.roundRect(x, y, self.tag_w, self.tag_h, 3, fill=1, stroke=1)
+            if is_badge:
+                # Highlight badge pill for renewals/extensions
+                self.canv.setFillColor(colors.HexColor("#2d2415"))
+                self.canv.setStrokeColor(colors.HexColor("#784e1b"))
+                self.canv.setLineWidth(0.8)
+                self.canv.roundRect(x, y, self.tag_w, self.tag_h, 3, fill=1, stroke=1)
 
-            self.canv.setFillColor(colors.HexColor("#94a3b8"))
-            self.canv.setFont("Courier-Bold", 7.2)
-            self.canv.drawCentredString(x + self.tag_w / 2.0, y + 4.2, str(conf))
+                self.canv.setFillColor(colors.HexColor("#f59e0b"))
+                self.canv.setFont("Helvetica-Bold", 6.8)
+                self.canv.drawCentredString(x + self.tag_w / 2.0, y + 4.2, text)
+            else:
+                self.canv.setFillColor(colors.HexColor("#151c2f"))
+                self.canv.setStrokeColor(colors.HexColor("#243152"))
+                self.canv.setLineWidth(0.8)
+                self.canv.roundRect(x, y, self.tag_w, self.tag_h, 3, fill=1, stroke=1)
+
+                self.canv.setFillColor(colors.HexColor("#94a3b8"))
+                f_size = 6.8 if len(text) <= 10 else 5.8
+                self.canv.setFont("Courier-Bold", f_size)
+                self.canv.drawCentredString(x + self.tag_w / 2.0, y + 4.2, text)
         self.canv.restoreState()
 
 
@@ -585,7 +616,13 @@ def generate_long_stay_pdf(
                 table_data.append(divider_row)
 
             # 1. Guest & Room column
-            room_text = f"Room {', '.join(s['rooms_list'])}" if s['rooms_list'] else f"{s['rooms_count']} Room"
+            if s['rooms_list']:
+                if len(s['rooms_list']) > 3:
+                    room_text = f"Rooms {', '.join(s['rooms_list'][:3])} (+{len(s['rooms_list']) - 3} more)"
+                else:
+                    room_text = f"Room {', '.join(s['rooms_list'])}"
+            else:
+                room_text = f"{s['rooms_count']} Room"
             guest_cell = [
                 Paragraph(s["guest_name"], guest_name_style),
                 Paragraph(f"<font color='#38bdf8'><b>●</b></font> {room_text}", guest_sub_style)
