@@ -25,14 +25,31 @@ def get_continuous_stays(
     Sorts descending from 30+ nights down to lesser continuous stay customers.
     Ignores guests who did not stay continuously in a row (e.g. breaks/gaps between stays).
     """
+    if not isinstance(min_nights, int):
+        try:
+            min_nights = int(min_nights)
+        except Exception:
+            min_nights = 7
+    if not isinstance(search, str):
+        search = None
+
     prop = None
     if property_id:
         prop = db.query(Property).filter(Property.id == property_id).first()
     if not prop:
         prop = db.query(Property).first()
 
-    prop_name = prop.name if prop else "Motel 6"
+    prop_name = prop.name if prop else "Studio 6"
     target_property_id = prop.id if prop else 1
+
+    # Determine latest known report date for the property to bound active stays
+    latest_report = (
+        db.query(UploadedReport.report_date)
+        .filter(UploadedReport.property_id == target_property_id, UploadedReport.status == "completed", UploadedReport.is_active == True)
+        .order_by(UploadedReport.report_date.desc())
+        .first()
+    )
+    fallback_as_of = latest_report[0] if latest_report else datetime.date(2026, 10, 8)
 
     identities = db.query(GuestIdentity).filter(GuestIdentity.property_id == target_property_id).all()
     results: List[Dict[str, Any]] = []
@@ -49,9 +66,6 @@ def get_continuous_stays(
             .order_by(GuestRecord.check_in_date.asc(), UploadedReport.report_date.asc())
             .all()
         )
-
-        if not records:
-            continue
 
         # Deduplicate records representing the exact same reservation
         seen_res = set()
@@ -74,68 +88,86 @@ def get_continuous_stays(
                     "conf": conf
                 })
 
-        if not unique_spans:
-            continue
-
-        unique_spans.sort(key=lambda s: (s["start"], s["end"]))
-
-        # Chain consecutive stays ("stayed in a row")
         chains = []
-        curr_chain = {
-            "start": unique_spans[0]["start"],
-            "end": unique_spans[0]["end"],
-            "nights": unique_spans[0]["nights"],
-            "rooms": {unique_spans[0]["room"]} if unique_spans[0]["room"] else set(),
-            "confs": [unique_spans[0]["conf"]] if unique_spans[0]["conf"] else [],
-            "extensions": 0
-        }
+        if unique_spans:
+            unique_spans.sort(key=lambda s: (s["start"], s["end"]))
 
-        for next_span in unique_spans[1:]:
-            # If next reservation starts on or before current chain departure (or within 1 day of checkout)
-            # This represents an uninterrupted continuous stay
-            if next_span["start"] <= curr_chain["end"] + datetime.timedelta(days=1):
-                if next_span["end"] > curr_chain["end"]:
-                    curr_chain["end"] = next_span["end"]
-                curr_chain["nights"] = (curr_chain["end"] - curr_chain["start"]).days
-                if next_span["room"]:
-                    curr_chain["rooms"].add(next_span["room"])
-                if next_span["conf"] and next_span["conf"] not in curr_chain["confs"]:
-                    curr_chain["confs"].append(next_span["conf"])
-                curr_chain["extensions"] += 1
-            else:
-                # Gap in stay -> Chain broken! Not stayed in a row.
-                chains.append(curr_chain)
-                curr_chain = {
-                    "start": next_span["start"],
-                    "end": next_span["end"],
-                    "nights": next_span["nights"],
-                    "rooms": {next_span["room"]} if next_span["room"] else set(),
-                    "confs": [next_span["conf"]] if next_span["conf"] else [],
-                    "extensions": 0
-                }
-        chains.append(curr_chain)
+            # Chain consecutive stays ("stayed in a row")
+            curr_chain = {
+                "start": unique_spans[0]["start"],
+                "end": unique_spans[0]["end"],
+                "nights": unique_spans[0]["nights"],
+                "rooms": {unique_spans[0]["room"]} if unique_spans[0]["room"] else set(),
+                "confs": [unique_spans[0]["conf"]] if unique_spans[0]["conf"] else [],
+                "extensions": 0
+            }
+
+            for next_span in unique_spans[1:]:
+                # If next reservation starts on or before current chain departure (or within 1 day of checkout)
+                if next_span["start"] <= curr_chain["end"] + datetime.timedelta(days=1):
+                    if next_span["end"] > curr_chain["end"]:
+                        curr_chain["end"] = next_span["end"]
+                    curr_chain["nights"] = (curr_chain["end"] - curr_chain["start"]).days
+                    if next_span["room"]:
+                        curr_chain["rooms"].add(next_span["room"])
+                    if next_span["conf"] and next_span["conf"] not in curr_chain["confs"]:
+                        curr_chain["confs"].append(next_span["conf"])
+                    curr_chain["extensions"] += 1
+                else:
+                    chains.append(curr_chain)
+                    curr_chain = {
+                        "start": next_span["start"],
+                        "end": next_span["end"],
+                        "nights": next_span["nights"],
+                        "rooms": {next_span["room"]} if next_span["room"] else set(),
+                        "confs": [next_span["conf"]] if next_span["conf"] else [],
+                        "extensions": 0
+                    }
+            chains.append(curr_chain)
+
+            # If an original check-in date is configured and earlier than earliest chain, anchor it
+            if identity.original_check_in_date:
+                # Expand the primary continuous chain back to the original check-in date
+                primary_chain = chains[-1] if chains else curr_chain
+                if identity.original_check_in_date < primary_chain["start"]:
+                    primary_chain["start"] = identity.original_check_in_date
+                    primary_chain["nights"] = (primary_chain["end"] - primary_chain["start"]).days
+
+        if not chains:
+            continue
 
         # Check all continuous chains for this guest
         for c in chains:
-            if c["nights"] >= min_nights:
-                if c["nights"] >= 30:
-                    cat = "30+ Nights"
+            nights = c["nights"]
+            if nights >= min_nights:
+                start_d = c["start"]
+                county_exempt_d = start_d + datetime.timedelta(days=30)
+                state_exempt_d = start_d + datetime.timedelta(days=90)
+
+                if nights >= 90:
+                    cat = "90+ Nights"
+                    cat_key = "90+"
+                    tax_status = "Fully Tax Exempt (State + County)"
+                elif nights >= 30:
+                    cat = "30–89 Nights"
                     cat_key = "30+"
-                elif c["nights"] >= 21:
-                    cat = "21+ Nights"
+                    tax_status = "County Tax Exempt Only (30+ Days)"
+                elif nights >= 21:
+                    cat = "21–29 Nights"
                     cat_key = "21+"
-                elif c["nights"] >= 14:
-                    cat = "14+ Nights"
-                    cat_key = "14+"
-                elif c["nights"] >= 7:
-                    cat = "7+ Nights"
+                    tax_status = f"Approaching County Exemption ({30 - nights}d left)"
+                elif nights >= 7:
+                    cat = "7–20 Nights"
                     cat_key = "7+"
+                    tax_status = f"Standard Taxable ({30 - nights}d to County Exempt)"
                 else:
                     cat = "< 7 Nights"
                     cat_key = "<7"
+                    tax_status = f"Standard Taxable ({30 - nights}d to County Exempt)"
 
                 results.append({
                     "guest_name": identity.normalized_name,
+                    "guest_identity_id": identity.id,
                     "check_in": c["start"],
                     "check_out": c["end"],
                     "total_nights": c["nights"],
@@ -143,13 +175,17 @@ def get_continuous_stays(
                     "rooms_list": sorted(list(c["rooms"])),
                     "category": cat,
                     "category_key": cat_key,
+                    "tax_status": tax_status,
+                    "county_exempt_date": county_exempt_d,
+                    "state_exempt_date": state_exempt_d,
+                    "fixed_rate": identity.fixed_rate,
                     "extended": "Yes" if c["extensions"] > 0 else "No",
                     "ext_count": c["extensions"],
                     "confirmations": c["confs"]
                 })
 
     # Optional search filtering (by guest name, room number, or confirmation number)
-    if search:
+    if search and isinstance(search, str):
         s = search.strip().upper()
         results = [
             r for r in results
@@ -158,15 +194,17 @@ def get_continuous_stays(
             or any(s in cf.upper() for cf in r["confirmations"])
         ]
 
-    # Order from 30+ days descending to lesser continuous stay customers
+    # Order from 90+ days descending to lesser continuous stay customers
     results.sort(key=lambda x: (-x["total_nights"], x["check_in"], x["guest_name"]))
 
     # Aggregate counts for header summary badges
-    counts = {"30+": 0, "21+": 0, "14+": 0, "7+": 0}
+    counts = {"90+": 0, "30+": 0, "21+": 0, "7+": 0}
     for r in results:
         k = r["category_key"]
         if k in counts:
             counts[k] += 1
+
+    return prop_name, results, counts
 
     return prop_name, results, counts
 
@@ -300,10 +338,19 @@ class MetricCardsFlowable(Flowable):
         self.canv.saveState()
         card_configs = [
             {
-                "tier": "30+ NIGHTS",
+                "tier": "90+ NIGHTS",
+                "count": self.counts.get("90+", 0),
+                "badge": "STATE & COUNTY EXEMPT",
+                "sub": "Full tax exemption",
+                "accent": "#10b981",
+                "bg": "#112220",
+                "border": "#194a3e"
+            },
+            {
+                "tier": "30–89 NIGHTS",
                 "count": self.counts.get("30+", 0),
-                "badge": "TAX EXEMPT TIER",
-                "sub": "Monthly residency alert",
+                "badge": "COUNTY EXEMPT ONLY",
+                "sub": "Local transient exempt",
                 "accent": "#f43f5e",
                 "bg": "#1e1524",
                 "border": "#4c1d30"
@@ -312,28 +359,19 @@ class MetricCardsFlowable(Flowable):
                 "tier": "21–29 NIGHTS",
                 "count": self.counts.get("21+", 0),
                 "badge": "APPROACHING 30",
-                "sub": "3+ weeks continuous",
+                "sub": "Approaching residency",
                 "accent": "#f59e0b",
                 "bg": "#211a14",
                 "border": "#4d3516"
             },
             {
-                "tier": "14–20 NIGHTS",
-                "count": self.counts.get("14+", 0),
-                "badge": "MID-STAY",
-                "sub": "Bi-weekly occupancy",
+                "tier": "7–20 NIGHTS",
+                "count": self.counts.get("7+", 0),
+                "badge": "WEEKLY EXTENDED",
+                "sub": "Continuous occupancy",
                 "accent": "#38bdf8",
                 "bg": "#121d2e",
                 "border": "#1e3759"
-            },
-            {
-                "tier": "7–13 NIGHTS",
-                "count": self.counts.get("7+", 0),
-                "badge": "WEEKLY",
-                "sub": "1–2 weeks continuous",
-                "accent": "#10b981",
-                "bg": "#112220",
-                "border": "#194a3e"
             }
         ]
 
@@ -556,16 +594,20 @@ def generate_long_stay_pdf(
     table_data = [[
         Paragraph("GUEST & ROOM", th_style),
         Paragraph("STAY PERIOD", th_style),
-        Paragraph("DURATION", th_center),
-        Paragraph("TIER / CATEGORY", th_center),
-        Paragraph("BOOKING TYPE & EXTENSIONS", th_center),
-        Paragraph("CONFIRMATION NUMBERS", th_style),
+        Paragraph("DURATION & TIER", th_center),
+        Paragraph("TAX EXEMPTION DATES", th_style),
+        Paragraph("RATE & EXTENSIONS", th_center),
+        Paragraph("CONFIRMATIONS", th_style),
     ]]
 
     # 6 columns summing to 720 pt
-    col_widths = [160, 130, 80, 90, 120, 140]
+    col_widths = [145, 115, 80, 150, 110, 120]
 
     tier_labels = {
+        "90+ Nights": ("90+ DAYS CONTINUOUS  •  STATE & COUNTY TAX EXEMPT (FULL RESIDENCY)", "#10b981", "#122b24"),
+        "30–89 Nights": ("30–89 DAYS CONTINUOUS  •  COUNTY TAX EXEMPT ONLY (LOCAL RESIDENCY)", "#f43f5e", "#2a121e"),
+        "21–29 Nights": ("21–29 DAYS CONTINUOUS  •  APPROACHING 30-DAY COUNTY EXEMPTION", "#f59e0b", "#2a1f12"),
+        "7–20 Nights": ("7–20 DAYS CONTINUOUS  •  WEEKLY EXTENDED OCCUPANCY", "#38bdf8", "#122338"),
         "30+ Nights": ("30+ DAYS CONTINUOUS  •  MONTHLY RESIDENCY (TAX ALERT)", "#f43f5e", "#2a121e"),
         "21+ Nights": ("21–29 DAYS CONTINUOUS  •  APPROACHING MONTHLY TIER", "#f59e0b", "#2a1f12"),
         "14+ Nights": ("14–20 DAYS CONTINUOUS  •  BI-WEEKLY EXTENDED STAY", "#38bdf8", "#122338"),
@@ -573,6 +615,10 @@ def generate_long_stay_pdf(
     }
 
     tier_pills = {
+        "90+ Nights": ("90+ Nights", "#194a3e", "#10b981"),
+        "30–89 Nights": ("30–89 Nights", "#4c1d30", "#f43f5e"),
+        "21–29 Nights": ("21–29 Nights", "#4d3516", "#f59e0b"),
+        "7–20 Nights": ("7–20 Nights", "#1e3759", "#38bdf8"),
         "30+ Nights": ("30+ Nights", "#4c1d30", "#f43f5e"),
         "21+ Nights": ("21+ Nights", "#4d3516", "#f59e0b"),
         "14+ Nights": ("14+ Nights", "#1e3759", "#38bdf8"),
@@ -623,9 +669,14 @@ def generate_long_stay_pdf(
                     room_text = f"Room {', '.join(s['rooms_list'])}"
             else:
                 room_text = f"{s['rooms_count']} Room"
+
+            rate_line = ""
+            if s.get("fixed_rate"):
+                rate_line = f"<br/><font color='#fbbf24'><b>Fixed Rate:</b> ${s['fixed_rate']:.2f}/nt</font>"
+
             guest_cell = [
                 Paragraph(s["guest_name"], guest_name_style),
-                Paragraph(f"<font color='#38bdf8'><b>●</b></font> {room_text}", guest_sub_style)
+                Paragraph(f"<font color='#38bdf8'><b>●</b></font> {room_text}{rate_line}", guest_sub_style)
             ]
 
             # 2. Stay Period column
@@ -636,52 +687,80 @@ def generate_long_stay_pdf(
                 Paragraph(f"Unbroken continuous stay", date_sub_style)
             ]
 
-            # 3. Duration column
+            # 3. Duration & Tier column
             duration_pill = PillTag(
                 f"{s['total_nights']} Nights",
                 bg_hex="#1e293b",
                 text_hex="#ffffff",
-                width=68,
-                height=17,
-                radius=4,
-                font_size=8
+                width=72,
+                height=15,
+                radius=3.5,
+                font_size=7.5
             )
-
-            # 4. Tier Badge column
             t_text, t_bg, t_fg = tier_pills.get(s["category"], (s["category"], "#1e293b", "#94a3b8"))
-            tier_pill = PillTag(t_text, bg_hex=t_bg, text_hex=t_fg, width=74, height=17, radius=4, font_size=7.5)
+            tier_pill = PillTag(t_text, bg_hex=t_bg, text_hex=t_fg, width=72, height=15, radius=3.5, font_size=7)
 
-            # 5. Booking Type & Extensions column
+            duration_tier_cell = [
+                duration_pill,
+                Spacer(1, 2),
+                tier_pill
+            ]
+
+            # 4. Tax Exemption Dates column
+            county_str = s["county_exempt_date"].strftime("%b %d, %Y") if s.get("county_exempt_date") else "N/A"
+            state_str = s["state_exempt_date"].strftime("%b %d, %Y") if s.get("state_exempt_date") else "N/A"
+            tax_status_str = s.get("tax_status", "")
+
+            status_color = "#10b981" if s["total_nights"] >= 90 else ("#f43f5e" if s["total_nights"] >= 30 else ("#f59e0b" if s["total_nights"] >= 21 else "#94a3b8"))
+            tax_cell = [
+                Paragraph(f"<font color='#94a3b8'>County (30+):</font> <b>{county_str}</b>", date_sub_style),
+                Paragraph(f"<font color='#94a3b8'>State (90+):</font> <b>{state_str}</b>", date_sub_style),
+                Paragraph(f"<font color='{status_color}'><b>● {tax_status_str}</b></font>", date_sub_style)
+            ]
+
+            # 5. Rate & Extensions column
+            rate_booking_cell = []
             if s["ext_count"] > 0:
-                ext_pill = PillTag(
+                rate_booking_cell.append(PillTag(
                     f"Extended ({s['ext_count']} Renewals)",
                     bg_hex="#3b2b13",
                     text_hex="#fbbf24",
-                    width=108,
-                    height=17,
-                    radius=4,
-                    font_size=7
-                )
+                    width=100,
+                    height=15,
+                    radius=3.5,
+                    font_size=6.8
+                ))
             else:
-                ext_pill = PillTag(
+                rate_booking_cell.append(PillTag(
                     "Single Booking (0 Ext)",
                     bg_hex="#161e31",
                     text_hex="#94a3b8",
-                    width=108,
-                    height=17,
-                    radius=4,
+                    width=100,
+                    height=15,
+                    radius=3.5,
+                    font_size=6.8
+                ))
+            if s.get("fixed_rate"):
+                rate_booking_cell.append(Spacer(1, 2))
+                rate_booking_cell.append(PillTag(
+                    f"${s['fixed_rate']:.2f} / night",
+                    bg_hex="#132a24",
+                    text_hex="#34d399",
+                    width=100,
+                    height=15,
+                    radius=3.5,
                     font_size=7
-                )
+                ))
 
             # 6. Confirmation tags
-            conf_flowable = ConfGridFlowable(s["confirmations"], max_width=140)
+            conf_flowable = ConfGridFlowable(s["confirmations"], max_width=120)
 
             row = [
                 guest_cell,
                 period_cell,
-                duration_pill,
-                tier_pill,
-                ext_pill,
+                duration_tier_cell,
+                tax_cell,
+                rate_booking_cell,
                 conf_flowable
             ]
             table_data.append(row)

@@ -1,6 +1,7 @@
 import datetime
 import json
-from fastapi import APIRouter, Depends
+from typing import List, Optional
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.db.session import get_db
@@ -13,29 +14,53 @@ from app.db.models import (
     Property,
     User
 )
-from app.schemas.models import DashboardSummary
+from app.schemas.models import DashboardSummary, PropertyItem
 from app.analytics.rolling_window import calculate_rolling_window
 from app.core.time_utils import to_utc_iso
 from app.api.deps import get_current_user
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
-@router.get("/summary", response_model=DashboardSummary)
-def get_dashboard_summary(
+@router.get("/properties", response_model=List[PropertyItem])
+def get_properties(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    prop = db.query(Property).first()
-    property_id = prop.id if prop else 1
+    """Returns all configured properties (e.g. Studio 6, Motel 6)."""
+    props = db.query(Property).order_by(Property.id.asc()).all()
+    return [
+        PropertyItem(
+            id=p.id,
+            name=p.name,
+            property_code=p.property_code,
+            timezone=p.timezone,
+            address=p.address
+        )
+        for p in props
+    ]
+
+@router.get("/summary", response_model=DashboardSummary)
+def get_dashboard_summary(
+    property_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    prop = None
+    if property_id:
+        prop = db.query(Property).filter(Property.id == property_id).first()
+    if not prop:
+        prop = db.query(Property).first()
+    target_property_id = prop.id if prop else 1
+    property_id = target_property_id
 
     # Recalculate / retrieve rolling window metrics
-    win_data = calculate_rolling_window(db, property_id)
+    win_data = calculate_rolling_window(db, target_property_id)
     
     # 1. Total Reports Imported
     total_reports = (
         db.query(UploadedReport)
         .filter(
-            UploadedReport.property_id == property_id,
+            UploadedReport.property_id == target_property_id,
             UploadedReport.status == "completed",
             UploadedReport.is_active == True
         )
@@ -48,11 +73,15 @@ def get_dashboard_summary(
     # 3. Unique Guest Identities
     unique_guests = (
         db.query(GuestIdentity)
-        .filter(GuestIdentity.property_id == property_id)
+        .filter(GuestIdentity.property_id == target_property_id)
         .count()
     )
 
     # 4. Continuous Stay Count (Mode A)
+    # Count continuous stays >= 30 days for this property
+    from app.analytics.long_stay_pdf import get_continuous_stays
+    _, stays, counts = get_continuous_stays(db, property_id=target_property_id, min_nights=30)
+    continuous_stay_count = len(stays)
     continuous_stays = (
         db.query(StayAssessment)
         .filter(

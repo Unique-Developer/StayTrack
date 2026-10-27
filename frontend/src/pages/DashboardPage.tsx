@@ -14,6 +14,7 @@ import { DashboardSummary } from '../types';
 import { DashboardCards } from '../components/DashboardCards';
 import { TrendChart } from '../components/TrendChart';
 import { formatNYDateTime } from '../utils/dateUtils';
+import { useProperty } from '../context/PropertyContext';
 
 interface DashboardPageProps {
   summary: DashboardSummary;
@@ -21,8 +22,24 @@ interface DashboardPageProps {
 }
 
 export const DashboardPage: React.FC<DashboardPageProps> = ({ summary, onNavigate }) => {
+  const { currentProperty } = useProperty();
+
   return (
     <div className="space-y-6">
+      {/* Active Motel Banner */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-800/60">
+        <div>
+          <h1 className="text-2xl font-black text-white tracking-tight flex items-center gap-2.5">
+            Operational Dashboard
+          </h1>
+          <p className="text-xs text-slate-400 mt-1">
+            Real-time analytics and occupancy tracking for <strong className="text-amber-400">{currentProperty?.name || 'Active Motel'}</strong>
+            <span className="ml-2 font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 border border-slate-700">
+              #{currentProperty?.property_code || '3756'}
+            </span>
+          </p>
+        </div>
+      </div>
       {/* Missing Dates Banner (if any) */}
       {summary.missing_reporting_dates_count > 0 && (
         <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-3 text-amber-200">

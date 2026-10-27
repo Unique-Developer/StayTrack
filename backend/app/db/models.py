@@ -89,6 +89,9 @@ class GuestIdentity(Base):
     normalized_name = Column(String(200), nullable=False, index=True)
     verification_status = Column(String(50), default="provisional", nullable=False)  # verified, provisional, flagged
     notes = Column(Text, nullable=True)
+    original_check_in_date = Column(Date, nullable=True)
+    fixed_rate = Column(Float, nullable=True)
+    custom_tax_exempt_status = Column(String(50), nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
 

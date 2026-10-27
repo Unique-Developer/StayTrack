@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { PropertyProvider, useProperty } from './context/PropertyContext';
 import { LoginPage } from './pages/LoginPage';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
@@ -17,6 +18,7 @@ import { Loader2 } from 'lucide-react';
 
 function MainApp() {
   const { user, isAuthenticated, isLoading, logout } = useAuth();
+  const { currentPropertyId, currentProperty } = useProperty();
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
   const [summary, setSummary] = useState<DashboardSummary | undefined>(undefined);
   const [reviewCount, setReviewCount] = useState<number>(0);
@@ -28,7 +30,7 @@ function MainApp() {
     setIsRefreshing(true);
     setLoadError(null);
     try {
-      const sum = await api.getDashboardSummary();
+      const sum = await api.getDashboardSummary(currentPropertyId);
       setSummary(sum);
 
       const reviewData = await api.getReviewQueue();
@@ -45,7 +47,7 @@ function MainApp() {
     if (isAuthenticated) {
       loadDashboardData();
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, currentPropertyId]);
 
   if (isLoading) {
     return (
@@ -147,7 +149,9 @@ function MainApp() {
 export function App() {
   return (
     <AuthProvider>
-      <MainApp />
+      <PropertyProvider>
+        <MainApp />
+      </PropertyProvider>
     </AuthProvider>
   );
 }

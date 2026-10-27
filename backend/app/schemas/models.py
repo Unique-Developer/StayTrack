@@ -124,6 +124,25 @@ class GuestAssessmentItem(BaseModel):
     verification_status: str
     confidence_score: float
     notes: Optional[str]
+    original_check_in_date: Optional[str] = None
+    county_exempt_date: Optional[str] = None
+    state_exempt_date: Optional[str] = None
+    tax_exempt_status: Optional[str] = None
+    fixed_rate: Optional[float] = None
+    tier_category: Optional[str] = None
+
+class PropertyItem(BaseModel):
+    id: int
+    name: str
+    property_code: str
+    timezone: str
+    address: Optional[str] = None
+
+class UpdateGuestIdentityRequest(BaseModel):
+    original_check_in_date: Optional[str] = None
+    fixed_rate: Optional[float] = None
+    verification_status: Optional[str] = None
+    notes: Optional[str] = None
 
 class GuestMonitoringResponse(BaseModel):
     total: int

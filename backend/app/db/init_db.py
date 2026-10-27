@@ -42,17 +42,30 @@ def init_db(db: Session = None):
                 db.add(alt_admin)
                 print("[Init DB] Created alias admin user: admin@staytrack.com")
 
-        # 2. Seed Default Property
-        prop = db.query(Property).filter(Property.property_code == settings.DEFAULT_PROPERTY_CODE).first()
-        if not prop:
-            prop = Property(
+        # 2. Seed Default Properties (Studio 6 and Motel 6)
+        prop_s6 = db.query(Property).filter(Property.property_code == settings.DEFAULT_PROPERTY_CODE).first()
+        if not prop_s6:
+            prop_s6 = Property(
                 name=settings.DEFAULT_PROPERTY_NAME,
                 property_code=settings.DEFAULT_PROPERTY_CODE,
                 timezone=settings.DEFAULT_TIMEZONE,
                 address="Stafford, VA"
             )
-            db.add(prop)
+            db.add(prop_s6)
+            db.flush()
             print(f"[Init DB] Created default property: {settings.DEFAULT_PROPERTY_NAME} ({settings.DEFAULT_PROPERTY_CODE})")
+
+        prop_m6 = db.query(Property).filter(Property.property_code == "MOTEL6").first()
+        if not prop_m6:
+            prop_m6 = Property(
+                name="MOTEL 6 - STAFFORD, VA",
+                property_code="MOTEL6",
+                timezone="America/New_York",
+                address="Stafford, VA"
+            )
+            db.add(prop_m6)
+            db.flush()
+            print("[Init DB] Created Motel 6 property: MOTEL 6 - STAFFORD, VA (MOTEL6)")
 
         # 3. Seed Default System Settings
         default_settings = [
@@ -103,6 +116,7 @@ def init_db(db: Session = None):
     finally:
         if close_db:
             db.close()
+
 
 if __name__ == "__main__":
     init_db()

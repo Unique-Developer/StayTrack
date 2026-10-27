@@ -12,6 +12,8 @@ import {
   LogOut
 } from 'lucide-react';
 import { User } from '../types';
+import { useProperty } from '../context/PropertyContext';
+import { MotelSwitcher } from './MotelSwitcher';
 
 interface SidebarProps {
   currentTab: string;
@@ -28,6 +30,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   user,
   onLogout
 }) => {
+  const { currentPropertyId, currentProperty } = useProperty();
+
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'upload', label: 'Upload Reports', icon: UploadCloud },
@@ -59,7 +63,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="p-5 border-b border-slate-800/80">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center text-slate-950 font-black text-xl shadow-lg shadow-amber-500/20">
-            S6
+            {currentPropertyId === 2 ? 'M6' : 'S6'}
           </div>
           <div>
             <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-1.5">
@@ -72,13 +76,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
 
-        {/* Property Selector */}
-        <div className="mt-4 px-3 py-2 rounded-lg bg-slate-800/60 border border-slate-700/50 flex items-center gap-2.5">
-          <Building2 className="w-4 h-4 text-amber-400 shrink-0" />
-          <div className="overflow-hidden">
-            <div className="text-xs font-semibold text-slate-200 truncate">STUDIO 6 - STAFFORD, VA</div>
-            <div className="text-[10px] text-slate-400 font-mono">Property #3756</div>
-          </div>
+        {/* Motel Switcher Segmented Pills */}
+        <div className="mt-4">
+          <MotelSwitcher variant="sidebar" />
         </div>
       </div>
 

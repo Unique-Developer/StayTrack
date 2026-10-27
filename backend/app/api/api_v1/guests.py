@@ -18,7 +18,7 @@ from app.db.models import (
     Property,
     User
 )
-from app.schemas.models import GuestMonitoringResponse, GuestAssessmentItem, MergeIdentitiesRequest
+from app.schemas.models import GuestMonitoringResponse, GuestAssessmentItem, MergeIdentitiesRequest, UpdateGuestIdentityRequest
 from app.core.time_utils import to_utc_iso, get_ny_now
 from app.api.deps import get_current_user, log_audit
 from app.analytics.stay_detector import recalculate_all_analytics
@@ -28,12 +28,13 @@ router = APIRouter(prefix="/guests", tags=["guests"])
 
 @router.get("/monitoring", response_model=GuestMonitoringResponse)
 def get_guest_monitoring(
-    mode: Optional[str] = Query(None, description="continuous_stay or repeated_appearance"),
+    mode: Optional[str] = Query("continuous_stay", description="continuous_stay or repeated_appearance"),
     search: Optional[str] = Query(None, description="Search name, room, or confirmation"),
     verification_status: Optional[str] = Query(None, description="Verified or Needs Verification"),
     min_appearances: Optional[int] = Query(None),
     min_duration: Optional[int] = Query(None),
     room: Optional[str] = Query(None),
+    property_id: Optional[int] = Query(None),
     sort_by: str = Query("stay_duration_days", description="stay_duration_days, reporting_dates_count, guest_name"),
     sort_order: str = Query("desc", description="asc or desc"),
     page: int = Query(1, ge=1),
@@ -41,80 +42,154 @@ def get_guest_monitoring(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    query = (
-        db.query(StayAssessment)
-        .join(GuestIdentity, StayAssessment.guest_identity_id == GuestIdentity.id)
-        .filter(StayAssessment.is_active_in_window == True)
-    )
+    mode_str = mode if isinstance(mode, str) else "continuous_stay"
+    sort_by_str = sort_by if isinstance(sort_by, str) else "stay_duration_days"
+    sort_order_str = sort_order if isinstance(sort_order, str) else "desc"
+    search_str = search if isinstance(search, str) else None
+    room_str = room if isinstance(room, str) else None
+    page_val = page if isinstance(page, int) else 1
+    page_size_val = page_size if isinstance(page_size, int) else 25
 
-    if mode:
-        query = query.filter(StayAssessment.mode == mode)
+    prop = None
+    if property_id and isinstance(property_id, int):
+        prop = db.query(Property).filter(Property.id == property_id).first()
+    if not prop:
+        prop = db.query(Property).first()
+    target_property_id = prop.id if prop else 1
 
-    if verification_status:
-        query = query.filter(StayAssessment.verification_status == verification_status)
-
-    if min_appearances:
-        query = query.filter(StayAssessment.reporting_dates_count >= min_appearances)
-
-    if min_duration:
-        query = query.filter(StayAssessment.stay_duration_days >= min_duration)
-
-    if room:
-        query = query.filter(StayAssessment.room_numbers.like(f"%{room}%"))
-
-    if search:
-        s = f"%{search.strip().upper()}%"
-        query = query.filter(
-            or_(
-                GuestIdentity.normalized_name.like(s),
-                StayAssessment.room_numbers.like(s),
-                StayAssessment.confirmation_numbers.like(s)
-            )
+    if mode_str == "repeated_appearance":
+        query = (
+            db.query(StayAssessment)
+            .join(GuestIdentity, StayAssessment.guest_identity_id == GuestIdentity.id)
+            .filter(StayAssessment.is_active_in_window == True, StayAssessment.property_id == target_property_id, StayAssessment.mode == "repeated_appearance")
         )
 
+        if verification_status and isinstance(verification_status, str):
+            query = query.filter(StayAssessment.verification_status == verification_status)
+        if min_appearances and isinstance(min_appearances, int):
+            query = query.filter(StayAssessment.reporting_dates_count >= min_appearances)
+        if min_duration and isinstance(min_duration, int):
+            query = query.filter(StayAssessment.stay_duration_days >= min_duration)
+        if room_str:
+            query = query.filter(StayAssessment.room_numbers.like(f"%{room_str}%"))
+        if search_str:
+            s = f"%{search_str.strip().upper()}%"
+            query = query.filter(
+                or_(
+                    GuestIdentity.normalized_name.like(s),
+                    StayAssessment.room_numbers.like(s),
+                    StayAssessment.confirmation_numbers.like(s)
+                )
+            )
+
+        sort_col = getattr(StayAssessment, sort_by_str, StayAssessment.stay_duration_days)
+        if sort_by_str == "guest_name":
+            sort_col = GuestIdentity.normalized_name
+
+        if sort_order_str.lower() == "asc":
+            query = query.order_by(asc(sort_col))
+        else:
+            query = query.order_by(desc(sort_col))
+
+        total = query.count()
+        items_db = query.offset((page_val - 1) * page_size_val).limit(page_size_val).all()
+
+        items = []
+        for a in items_db:
+            rooms = json.loads(a.room_numbers or "[]")
+            confs = json.loads(a.confirmation_numbers or "[]")
+            dates = json.loads(a.date_list or "[]")
+
+            items.append(
+                GuestAssessmentItem(
+                    id=a.id,
+                    guest_identity_id=a.guest_identity_id,
+                    guest_name=a.guest_identity.normalized_name,
+                    mode=a.mode,
+                    stay_duration_days=a.stay_duration_days,
+                    reporting_dates_count=a.reporting_dates_count,
+                    first_date=a.first_date.isoformat() if a.first_date else None,
+                    last_date=a.last_date.isoformat() if a.last_date else None,
+                    rooms=rooms,
+                    confirmation_numbers=confs,
+                    dates_appeared=dates,
+                    evidence_source=a.evidence_source,
+                    verification_status=a.verification_status,
+                    confidence_score=1.0 if a.verification_status == "Verified" else 0.75,
+                    notes=a.notes,
+                    fixed_rate=a.guest_identity.fixed_rate
+                )
+            )
+
+        return GuestMonitoringResponse(
+            total=total,
+            page=page_val,
+            page_size=page_size_val,
+            items=items
+        )
+
+    # Mode A / Continuous stay or 90+ Days Guest List
+    effective_min = min_duration if isinstance(min_duration, int) else (90 if mode_str == "continuous_stay_90" else 30)
+    pname, stays, counts = get_continuous_stays(
+        db=db,
+        property_id=target_property_id,
+        min_nights=effective_min,
+        search=search_str
+    )
+
+    if room_str:
+        r_upper = room_str.strip().upper()
+        stays = [s for s in stays if any(r_upper in rm.upper() for rm in s["rooms_list"])]
+
     # Sorting
-    sort_col = getattr(StayAssessment, sort_by, StayAssessment.stay_duration_days)
-    if sort_by == "guest_name":
-        sort_col = GuestIdentity.normalized_name
-
-    if sort_order.lower() == "asc":
-        query = query.order_by(asc(sort_col))
+    if sort_by_str == "guest_name":
+        stays.sort(key=lambda s: s["guest_name"], reverse=(sort_order_str.lower() == "desc"))
+    elif sort_by_str == "first_date":
+        stays.sort(key=lambda s: s["check_in"], reverse=(sort_order_str.lower() == "desc"))
     else:
-        query = query.order_by(desc(sort_col))
+        stays.sort(key=lambda s: (-s["total_nights"], s["check_in"]) if sort_order_str.lower() != "asc" else (s["total_nights"], s["check_in"]))
 
-    total = query.count()
-    items_db = query.offset((page - 1) * page_size).limit(page_size).all()
+    total = len(stays)
+    start_idx = (page_val - 1) * page_size_val
+    paged_stays = stays[start_idx:start_idx + page_size_val]
 
     items = []
-    for a in items_db:
-        rooms = json.loads(a.room_numbers or "[]")
-        confs = json.loads(a.confirmation_numbers or "[]")
-        dates = json.loads(a.date_list or "[]")
+    for s in paged_stays:
+        county_iso = s["county_exempt_date"].isoformat() if s.get("county_exempt_date") else None
+        state_iso = s["state_exempt_date"].isoformat() if s.get("state_exempt_date") else None
+        cin_iso = s["check_in"].isoformat() if s.get("check_in") else None
+        cout_iso = s["check_out"].isoformat() if s.get("check_out") else None
 
         items.append(
             GuestAssessmentItem(
-                id=a.id,
-                guest_identity_id=a.guest_identity_id,
-                guest_name=a.guest_identity.normalized_name,
-                mode=a.mode,
-                stay_duration_days=a.stay_duration_days,
-                reporting_dates_count=a.reporting_dates_count,
-                first_date=a.first_date.isoformat() if a.first_date else None,
-                last_date=a.last_date.isoformat() if a.last_date else None,
-                rooms=rooms,
-                confirmation_numbers=confs,
-                dates_appeared=dates,
-                evidence_source=a.evidence_source,
-                verification_status=a.verification_status,
-                confidence_score=1.0 if a.verification_status == "Verified" else 0.75,
-                notes=a.notes
+                id=s["guest_identity_id"],
+                guest_identity_id=s["guest_identity_id"],
+                guest_name=s["guest_name"],
+                mode="continuous_stay",
+                stay_duration_days=s["total_nights"],
+                reporting_dates_count=s.get("ext_count", 0) + 1,
+                first_date=cin_iso,
+                last_date=cout_iso,
+                rooms=s["rooms_list"],
+                confirmation_numbers=s["confirmations"],
+                dates_appeared=[cin_iso, cout_iso] if cin_iso and cout_iso else [],
+                evidence_source=f"Unbroken continuous stay: {s['total_nights']} nights ({s['category']}).",
+                verification_status="Verified",
+                confidence_score=1.0,
+                notes=f"Tier: {s['category']} • {s.get('tax_status', '')}",
+                original_check_in_date=cin_iso,
+                county_exempt_date=county_iso,
+                state_exempt_date=state_iso,
+                tax_exempt_status=s.get("tax_status"),
+                fixed_rate=s.get("fixed_rate"),
+                tier_category=s.get("category")
             )
         )
 
     return GuestMonitoringResponse(
         total=total,
-        page=page,
-        page_size=page_size,
+        page=page_val,
+        page_size=page_size_val,
         items=items
     )
 
@@ -124,21 +199,95 @@ def export_guests(
     mode: Optional[str] = Query(None),
     verification_status: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
+    property_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Export filtered assessments to CSV format."""
+    """
+    Export guests to CSV format.
+    For Continuous Stays / Mode A: exports the exact matching dataset as the PDF report,
+    including room numbers, original check-in dates, 30+ county tax dates, 90+ state tax dates,
+    tax status, and fixed rates.
+    """
+    prop = None
+    if property_id:
+        prop = db.query(Property).filter(Property.id == property_id).first()
+    if not prop:
+        prop = db.query(Property).first()
+    target_property_id = prop.id if prop else 1
+
+    # Continuous Stay CSV export matching the PDF report exactly
+    if mode in ("continuous_stay", "continuous_stay_90"):
+        export_min_nights = 90 if mode == "continuous_stay_90" else 1
+        prop_name, stays, counts = get_continuous_stays(
+            db=db,
+            property_id=target_property_id,
+            min_nights=export_min_nights,
+            search=search
+        )
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow([
+            "Guest Name",
+            "Room#",
+            "Check-in Date",
+            "Calculated Departure Date",
+            "Total Consecutive Nights",
+            "Stay Tier",
+            "County Tax Exempt Start Date (30+ Days)",
+            "State Tax Exempt Date (90+ Days)",
+            "Tax Exemption Status",
+            "Fix Rate",
+            "Renewals / Extensions Count",
+            "Confirmation Numbers"
+        ])
+
+        for s in stays:
+            rooms_str = ", ".join(s.get("rooms_list", []))
+            confs_str = ", ".join(s.get("confirmations", []))
+            cin_str = s["check_in"].isoformat() if s.get("check_in") else ""
+            cout_str = s["check_out"].isoformat() if s.get("check_out") else ""
+            county_str = s["county_exempt_date"].isoformat() if s.get("county_exempt_date") else ""
+            state_str = s["state_exempt_date"].isoformat() if s.get("state_exempt_date") else ""
+            rate_val = f"{s['fixed_rate']:.2f}" if s.get("fixed_rate") is not None else ""
+
+            writer.writerow([
+                s["guest_name"],
+                rooms_str,
+                cin_str,
+                cout_str,
+                s["total_nights"],
+                s["category"],
+                county_str,
+                state_str,
+                s.get("tax_status", ""),
+                rate_val,
+                s.get("ext_count", 0),
+                confs_str
+            ])
+
+        today_str = get_ny_now().date().isoformat()
+        clean_pname = prop.name.lower().replace(" ", "_").replace("-", "") if prop else "property"
+        csv_filename = f"staytrack_{clean_pname}_90plus_days_tax_exempt_{today_str}.csv" if mode == "continuous_stay_90" else f"staytrack_{clean_pname}_tax_exempt_report_{today_str}.csv"
+        return Response(
+            content=output.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename={csv_filename}"}
+        )
+
+    # General / Repeated appearances assessment export
     query = (
         db.query(StayAssessment)
         .join(GuestIdentity, StayAssessment.guest_identity_id == GuestIdentity.id)
-        .filter(StayAssessment.is_active_in_window == True)
+        .filter(StayAssessment.is_active_in_window == True, StayAssessment.property_id == target_property_id)
     )
 
     if mode:
         query = query.filter(StayAssessment.mode == mode)
     if verification_status:
         query = query.filter(StayAssessment.verification_status == verification_status)
-    if search:
+    if search and isinstance(search, str):
         s = f"%{search.strip().upper()}%"
         query = query.filter(
             or_(
@@ -149,7 +298,6 @@ def export_guests(
         )
 
     rows = query.order_by(StayAssessment.stay_duration_days.desc()).all()
-
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow([
@@ -338,10 +486,78 @@ def get_guest_detail(
         "last_name": identity.primary_last_name,
         "verification_status": identity.verification_status,
         "notes": identity.notes,
+        "original_check_in_date": identity.original_check_in_date.isoformat() if identity.original_check_in_date else None,
+        "fixed_rate": identity.fixed_rate,
+        "county_exempt_date": (identity.original_check_in_date + datetime.timedelta(days=30)).isoformat() if identity.original_check_in_date else None,
+        "state_exempt_date": (identity.original_check_in_date + datetime.timedelta(days=90)).isoformat() if identity.original_check_in_date else None,
+        "tax_exempt_status": (
+            "Fully Tax Exempt (State + County)" if identity.original_check_in_date and (get_ny_now().date() - identity.original_check_in_date).days >= 90
+            else ("County Tax Exempt Only (30+ Days)" if identity.original_check_in_date and (get_ny_now().date() - identity.original_check_in_date).days >= 30
+            else "Standard Taxable")
+        ),
         "records_count": len(records),
         "timeline": timeline,
         "matches": match_history,
         "assessments": assessment_data
+    }
+
+
+@router.patch("/{identity_id}")
+def update_guest_identity(
+    identity_id: int,
+    req: UpdateGuestIdentityRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Allows setting or overriding the original check-in date, fixed rate, verification status, and notes.
+    """
+    identity = db.query(GuestIdentity).filter(GuestIdentity.id == identity_id).first()
+    if not identity:
+        raise HTTPException(status_code=404, detail="Guest identity not found")
+
+    if req.original_check_in_date is not None:
+        if req.original_check_in_date.strip() == "":
+            identity.original_check_in_date = None
+        else:
+            try:
+                identity.original_check_in_date = datetime.date.fromisoformat(req.original_check_in_date.strip())
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid date format for original_check_in_date (expected YYYY-MM-DD)")
+
+    if req.fixed_rate is not None:
+        identity.fixed_rate = req.fixed_rate
+
+    if req.verification_status is not None:
+        identity.verification_status = req.verification_status
+
+    if req.notes is not None:
+        identity.notes = req.notes
+
+    identity.updated_at = datetime.datetime.utcnow()
+    db.commit()
+    db.refresh(identity)
+
+    log_audit(
+        db,
+        current_user.id,
+        "update_guest_identity",
+        f"Updated guest identity #{identity.id} ({identity.normalized_name}): cin={identity.original_check_in_date}, rate={identity.fixed_rate}"
+    )
+
+    county_d = (identity.original_check_in_date + datetime.timedelta(days=30)).isoformat() if identity.original_check_in_date else None
+    state_d = (identity.original_check_in_date + datetime.timedelta(days=90)).isoformat() if identity.original_check_in_date else None
+
+    return {
+        "success": True,
+        "identity_id": identity.id,
+        "normalized_name": identity.normalized_name,
+        "original_check_in_date": identity.original_check_in_date.isoformat() if identity.original_check_in_date else None,
+        "fixed_rate": identity.fixed_rate,
+        "verification_status": identity.verification_status,
+        "notes": identity.notes,
+        "county_exempt_date": county_d,
+        "state_exempt_date": state_d
     }
 
 

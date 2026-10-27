@@ -13,14 +13,20 @@ import {
   RotateCcw,
   Sparkles,
   GitMerge,
+  Building2,
+  Award,
+  ShieldCheck,
   X
 } from 'lucide-react';
 import { api } from '../services/api';
-import { GuestAssessmentItem, GuestMonitoringResponse } from '../types';
+import { GuestAssessmentItem, GuestMonitoringResponse, Property } from '../types';
 import { GuestDetailModal } from '../components/GuestDetailModal';
+import { useProperty } from '../context/PropertyContext';
+import { MotelSwitcher } from '../components/MotelSwitcher';
 
 export const GuestMonitoringPage: React.FC = () => {
-  const [activeMode, setActiveMode] = useState<'continuous_stay' | 'repeated_appearance'>('continuous_stay');
+  const { currentPropertyId, currentProperty } = useProperty();
+  const [activeMode, setActiveMode] = useState<'continuous_stay_90' | 'continuous_stay' | 'repeated_appearance'>('continuous_stay_90');
   const [data, setData] = useState<GuestMonitoringResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
@@ -95,6 +101,7 @@ export const GuestMonitoringPage: React.FC = () => {
     setLoading(true);
     api.getGuestMonitoring({
       mode: activeMode,
+      property_id: currentPropertyId,
       search: search || undefined,
       verification_status: verificationFilter || undefined,
       room: roomFilter || undefined,
@@ -108,7 +115,7 @@ export const GuestMonitoringPage: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, [activeMode, verificationFilter]);
+  }, [activeMode, verificationFilter, currentPropertyId]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -125,6 +132,7 @@ export const GuestMonitoringPage: React.FC = () => {
   const handleExportCsv = () => {
     const url = api.getGuestExportUrl({
       mode: activeMode,
+      property_id: currentPropertyId,
       verification_status: verificationFilter || undefined,
       search: search || undefined,
     });
@@ -132,8 +140,11 @@ export const GuestMonitoringPage: React.FC = () => {
   };
 
   const handleExportPdf = () => {
+    const minNights = activeMode === 'continuous_stay_90' ? 90 : (activeMode === 'continuous_stay' ? 30 : 1);
     const url = api.getGuestExportPdfUrl({
       search: search || undefined,
+      property_id: currentPropertyId,
+      min_nights: minNights,
     });
     window.open(url, '_blank');
   };
@@ -170,14 +181,18 @@ export const GuestMonitoringPage: React.FC = () => {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-black text-white tracking-tight flex items-center gap-2.5">
-            <Users className="w-6 h-6 text-amber-400" /> Guest Monitoring
+            <Users className="w-6 h-6 text-amber-400" /> Guest Monitoring & Tax Exemption
           </h1>
-          <p className="text-xs text-slate-400 mt-1">
-            Continuous occupancy and repeated pattern analysis across the rolling 30-day reporting window.
+          <p className="text-xs text-slate-400 mt-1 flex items-center gap-2">
+            <span>Occupancy tracking & tax exemption milestones for</span>
+            <span className="font-bold text-amber-400">{currentProperty?.name || 'Selected Motel'}</span>
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Motel Switcher */}
+          <MotelSwitcher variant="header" />
+
           {selectedIdentityIds.size >= 2 && (
             <button
               onClick={openMergeDialog}
@@ -193,7 +208,7 @@ export const GuestMonitoringPage: React.FC = () => {
             className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition-all shadow-sm"
           >
             <Download className="w-4 h-4 text-amber-400" />
-            <span>Export CSV</span>
+            <span>{activeMode === 'continuous_stay_90' ? 'Export 90+ CSV' : 'Export CSV'}</span>
           </button>
 
           <button
@@ -202,47 +217,69 @@ export const GuestMonitoringPage: React.FC = () => {
             title="Export Long-Stay PDF Report"
           >
             <FileText className="w-4 h-4 text-rose-400" />
-            <span>Export PDF</span>
+            <span>{activeMode === 'continuous_stay_90' ? 'Export 90+ PDF' : 'Export PDF'}</span>
           </button>
         </div>
       </div>
 
-      {/* Mode Tabs (Mode A vs Mode B) */}
+      {/* Mode Tabs: 3 Tabs (90+ Days, 30+ Days, Mode B) */}
       <div className="flex flex-col sm:flex-row p-1.5 rounded-xl bg-slate-900 border border-slate-800 gap-2">
+        {/* Tab 1: 90+ Days Guest List */}
+        <button
+          onClick={() => setActiveMode('continuous_stay_90')}
+          className={`flex-1 flex items-center justify-center gap-2.5 py-3 px-4 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+            activeMode === 'continuous_stay_90'
+              ? 'bg-gradient-to-r from-emerald-500 to-emerald-600 text-slate-950 shadow-md shadow-emerald-500/25 font-black scale-[1.01]'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+          }`}
+        >
+          <Award className={`w-4 h-4 ${activeMode === 'continuous_stay_90' ? 'text-slate-950' : 'text-emerald-400'}`} />
+          <span>90+ Days Guest List</span>
+          <span
+            className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+              activeMode === 'continuous_stay_90' ? 'bg-slate-950 text-emerald-300' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+            }`}
+          >
+            State & County Exempt (&gt;= 90d)
+          </span>
+        </button>
+
+        {/* Tab 2: 30+ Days Continuous Stay */}
         <button
           onClick={() => setActiveMode('continuous_stay')}
-          className={`flex-1 flex items-center justify-center gap-2.5 py-3 px-4 rounded-lg text-xs font-bold transition-all ${
+          className={`flex-1 flex items-center justify-center gap-2.5 py-3 px-4 rounded-lg text-xs font-bold transition-all cursor-pointer ${
             activeMode === 'continuous_stay'
-              ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20 font-black'
+              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-md shadow-amber-500/20 font-black scale-[1.01]'
               : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
           }`}
         >
           <Flame className={`w-4 h-4 ${activeMode === 'continuous_stay' ? 'text-slate-950' : 'text-amber-400'}`} />
-          <span>Mode A: Continuous Stay Detection</span>
+          <span>30+ Days Continuous Stay</span>
           <span
-            className={`px-2 py-0.5 rounded-full text-[10px] font-mono ${
-              activeMode === 'continuous_stay' ? 'bg-slate-950 text-amber-400' : 'bg-slate-800 text-slate-400'
+            className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+              activeMode === 'continuous_stay' ? 'bg-slate-950 text-amber-400' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
             }`}
           >
-            &gt;= 30 Days
+            County Exempt Only (&gt;= 30d)
           </span>
         </button>
 
+        {/* Tab 3: Mode B: Repeated Appearance Detection */}
         <button
           onClick={() => setActiveMode('repeated_appearance')}
-          className={`flex-1 flex items-center justify-center gap-2.5 py-3 px-4 rounded-lg text-xs font-bold transition-all ${
+          className={`flex-1 flex items-center justify-center gap-2.5 py-3 px-4 rounded-lg text-xs font-bold transition-all cursor-pointer ${
             activeMode === 'repeated_appearance'
-              ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20 font-black'
+              ? 'bg-gradient-to-r from-sky-500 to-sky-600 text-slate-950 shadow-md shadow-sky-500/20 font-black scale-[1.01]'
               : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
           }`}
         >
           <CalendarCheck
-            className={`w-4 h-4 ${activeMode === 'repeated_appearance' ? 'text-slate-950' : 'text-amber-400'}`}
+            className={`w-4 h-4 ${activeMode === 'repeated_appearance' ? 'text-slate-950' : 'text-sky-400'}`}
           />
-          <span>Mode B: Repeated Daily Appearance Detection</span>
+          <span>Repeated Appearances (Mode B)</span>
           <span
-            className={`px-2 py-0.5 rounded-full text-[10px] font-mono ${
-              activeMode === 'repeated_appearance' ? 'bg-slate-950 text-amber-400' : 'bg-slate-800 text-slate-400'
+            className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+              activeMode === 'repeated_appearance' ? 'bg-slate-950 text-sky-300' : 'bg-sky-500/10 text-sky-400 border border-sky-500/20'
             }`}
           >
             &gt;= 3 Reports
@@ -252,15 +289,17 @@ export const GuestMonitoringPage: React.FC = () => {
 
       {/* Mode Description Info Box */}
       <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 text-xs text-slate-300">
-        {activeMode === 'continuous_stay' ? (
+        {activeMode === 'continuous_stay_90' ? (
           <div>
-            <strong className="text-amber-400">Mode A Rules:</strong> Evaluates uninterrupted occupancy evidence
-            (check-in date to departure date and continuous reservation chains). Guests meeting or exceeding 30
-            consecutive days are flagged for continuous residency / long-stay tax tracking.
+            <strong className="text-emerald-400">90+ Days State & County Tax Exemption Rules:</strong> Evaluates uninterrupted occupancy of 90 or more consecutive nights. Guests in this tier are fully exempt from both Virginia State Sales Tax and Local/County Occupancy Tax. Displays exact County Exempt Date (Day 31), State Exempt Date (Day 91), and negotiated fixed rates.
+          </div>
+        ) : activeMode === 'continuous_stay' ? (
+          <div>
+            <strong className="text-amber-400">30+ Days Continuous Stay Rules:</strong> Evaluates uninterrupted occupancy of 30 or more consecutive days (check-in date to departure date across continuous reservation chains). Guests meeting or exceeding 30 consecutive days qualify for County / Local Occupancy Tax Exemption.
           </div>
         ) : (
           <div>
-            <strong className="text-amber-400">Mode B Rules:</strong> Counts distinct daily departure reports in which a
+            <strong className="text-sky-400">Mode B Rules:</strong> Counts distinct daily departure reports in which a
             matching guest identity appeared. Guests appearing repeatedly (default &gt;= 3 distinct reports) are flagged
             for frequent/extended guest review regardless of reservation breaks.
           </div>
@@ -328,29 +367,33 @@ export const GuestMonitoringPage: React.FC = () => {
                   />
                 </th>
                 <th className="py-3 px-4">Guest Name</th>
-                <th className="py-3 px-4">Room History</th>
-                {activeMode === 'continuous_stay' ? (
+                <th className="py-3 px-4">Room#</th>
+                {activeMode !== 'repeated_appearance' ? (
                   <>
                     <th className="py-3 px-4">Check-In Date</th>
                     <th className="py-3 px-4">Calculated Departure</th>
-                    <th className="py-3 px-4">Stay Duration</th>
+                    <th className="py-3 px-4">Duration & Tier</th>
+                    <th className="py-3 px-4">County Exempt (30+)</th>
+                    <th className="py-3 px-4">State Exempt (90+)</th>
+                    <th className="py-3 px-4">Tax Status</th>
+                    <th className="py-3 px-4">Fixed Rate</th>
                   </>
                 ) : (
                   <>
                     <th className="py-3 px-4">Report Dates Count</th>
                     <th className="py-3 px-4">First Appearance</th>
                     <th className="py-3 px-4">Last Appearance</th>
+                    <th className="py-3 px-4">Verification</th>
+                    <th className="py-3 px-4">Evidence & Notes</th>
                   </>
                 )}
-                <th className="py-3 px-4">Verification</th>
-                <th className="py-3 px-4">Evidence & Notes</th>
                 <th className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60 bg-slate-900/40 text-slate-300">
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="py-10 text-center text-slate-500 animate-pulse">
+                  <td colSpan={10} className="py-10 text-center text-slate-500 animate-pulse">
                     Loading guest monitoring records...
                   </td>
                 </tr>
@@ -391,25 +434,62 @@ export const GuestMonitoringPage: React.FC = () => {
 
                       <td className="py-3 px-4 font-mono">
                         <div className="flex flex-wrap gap-1">
-                          {item.rooms.map((rm, rIdx) => (
-                            <span
-                              key={rIdx}
-                              className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-200 border border-slate-700 font-bold text-[10px]"
-                            >
-                              Rm {rm}
-                            </span>
-                          ))}
+                          {item.rooms.length > 0 ? (
+                            item.rooms.map((rm, rIdx) => (
+                              <span
+                                key={rIdx}
+                                className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-200 border border-slate-700 font-bold text-[10px]"
+                              >
+                                Rm {rm}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-slate-500 text-[10px]">—</span>
+                          )}
                         </div>
                       </td>
 
-                      {activeMode === 'continuous_stay' ? (
+                      {activeMode !== 'repeated_appearance' ? (
                         <>
-                          <td className="py-3 px-4 font-mono text-slate-300">{item.first_date || 'N/A'}</td>
+                          <td className="py-3 px-4 font-mono font-bold text-slate-200">{item.first_date || 'N/A'}</td>
                           <td className="py-3 px-4 font-mono text-slate-300">{item.last_date || 'N/A'}</td>
                           <td className="py-3 px-4">
-                            <span className="px-2 py-0.5 rounded-full font-mono font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs">
-                              {item.stay_duration_days} Days
+                            <div className="space-y-1">
+                              <span className="px-2 py-0.5 rounded-full font-mono font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs">
+                                {item.stay_duration_days} Days
+                              </span>
+                              <div>
+                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                  item.stay_duration_days >= 90
+                                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                    : item.stay_duration_days >= 30
+                                    ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                                    : item.stay_duration_days >= 21
+                                    ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                                    : 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
+                                }`}>
+                                  {item.tier_category || (item.stay_duration_days >= 90 ? '90+ Nights' : item.stay_duration_days >= 30 ? '30–89 Nights' : item.stay_duration_days >= 21 ? '21–29 Nights' : '7–20 Nights')}
+                                </span>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-3 px-4 font-mono text-amber-300 font-semibold">{item.county_exempt_date || 'N/A'}</td>
+                          <td className="py-3 px-4 font-mono text-emerald-400 font-semibold">{item.state_exempt_date || 'N/A'}</td>
+                          <td className="py-3 px-4">
+                            <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                              item.stay_duration_days >= 90
+                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                                : item.stay_duration_days >= 30
+                                ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30'
+                                : item.stay_duration_days >= 21
+                                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
+                                : 'bg-slate-800 text-slate-400 border border-slate-700'
+                            }`}>
+                              {item.tax_exempt_status || (item.stay_duration_days >= 90 ? 'State & County Exempt' : item.stay_duration_days >= 30 ? 'County Exempt Only' : 'Taxable')}
                             </span>
+                          </td>
+                          <td className="py-3 px-4 font-mono font-bold text-emerald-400">
+                            {item.fixed_rate !== undefined && item.fixed_rate !== null ? `$${item.fixed_rate.toFixed(2)}` : <span className="text-slate-500 font-normal">—</span>}
                           </td>
                         </>
                       ) : (
@@ -421,24 +501,22 @@ export const GuestMonitoringPage: React.FC = () => {
                           </td>
                           <td className="py-3 px-4 font-mono text-slate-300">{item.first_date || 'N/A'}</td>
                           <td className="py-3 px-4 font-mono text-slate-300">{item.last_date || 'N/A'}</td>
+                          <td className="py-3 px-4">
+                            {item.verification_status === 'Verified' ? (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                <CheckCircle2 className="w-3 h-3" /> Verified
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                <AlertTriangle className="w-3 h-3" /> Needs Review
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 max-w-xs truncate text-[11px] text-slate-400">
+                            {item.evidence_source || item.notes}
+                          </td>
                         </>
                       )}
-
-                      <td className="py-3 px-4">
-                        {item.verification_status === 'Verified' ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                            <CheckCircle2 className="w-3 h-3" /> Verified
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                            <AlertTriangle className="w-3 h-3" /> Needs Review
-                          </span>
-                        )}
-                      </td>
-
-                      <td className="py-3 px-4 max-w-xs truncate text-[11px] text-slate-400">
-                        {item.evidence_source || item.notes}
-                      </td>
 
                       <td className="py-3 px-4 text-right">
                         <button
@@ -597,7 +675,7 @@ export const GuestMonitoringPage: React.FC = () => {
       )}
 
       {/* Guest Detail Slide-Over Modal */}
-      <GuestDetailModal identityId={selectedGuestId} onClose={() => setSelectedGuestId(null)} />
+      <GuestDetailModal identityId={selectedGuestId} onClose={() => { setSelectedGuestId(null); loadData(); }} />
     </div>
   );
 };

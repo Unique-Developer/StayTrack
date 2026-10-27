@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Calendar, UploadCloud, RefreshCw, AlertCircle, LogOut, Clock, User as UserIcon } from 'lucide-react';
 import { DashboardSummary, User } from '../types';
 import { getCurrentNYTimeDisplay } from '../utils/dateUtils';
+import { MotelSwitcher } from './MotelSwitcher';
 
 interface HeaderProps {
   summary?: DashboardSummary;
@@ -39,10 +40,13 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="h-16 bg-slate-900/80 backdrop-blur-md border-b border-slate-800 px-4 md:px-6 flex items-center justify-between sticky top-0 z-20">
-      {/* Rolling Window Indicator */}
+    <header className="h-16 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-4 md:px-6 flex items-center justify-between sticky top-0 z-30">
+      {/* Motel Switcher & Rolling Window Indicator */}
       <div className="flex items-center gap-3 overflow-hidden">
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800/80 border border-slate-700/60 text-xs truncate">
+        {/* Prominent Motel Switcher */}
+        <MotelSwitcher variant="header" />
+
+        <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800/80 border border-slate-700/60 text-xs truncate">
           <Calendar className="w-3.5 h-3.5 text-amber-400 shrink-0" />
           <span className="text-slate-400 font-medium hidden sm:inline">Rolling Window:</span>
           {summary?.active_window_start && summary?.active_window_end ? (

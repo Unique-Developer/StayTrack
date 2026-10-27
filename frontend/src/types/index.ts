@@ -105,7 +105,7 @@ export interface GuestAssessmentItem {
   id: number;
   guest_identity_id: number;
   guest_name: string;
-  mode: 'continuous_stay' | 'repeated_appearance';
+  mode: 'continuous_stay' | 'repeated_appearance' | 'continuous_stay_90';
   stay_duration_days: number;
   reporting_dates_count: number;
   first_date?: string;
@@ -117,6 +117,20 @@ export interface GuestAssessmentItem {
   verification_status: 'Verified' | 'Needs Verification' | 'Rejected';
   confidence_score: number;
   notes?: string;
+  original_check_in_date?: string;
+  county_exempt_date?: string;
+  state_exempt_date?: string;
+  tax_exempt_status?: string;
+  fixed_rate?: number | null;
+  tier_category?: string;
+}
+
+export interface Property {
+  id: number;
+  name: string;
+  property_code: string;
+  timezone: string;
+  address?: string | null;
 }
 
 export interface GuestMonitoringResponse {
@@ -156,6 +170,11 @@ export interface GuestDetail {
   last_name?: string;
   verification_status: string;
   notes?: string;
+  original_check_in_date?: string;
+  fixed_rate?: number | null;
+  county_exempt_date?: string;
+  state_exempt_date?: string;
+  tax_exempt_status?: string;
   records_count: number;
   timeline: Array<{
     record_id: number;

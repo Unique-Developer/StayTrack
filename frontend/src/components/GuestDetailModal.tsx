@@ -14,15 +14,55 @@ export const GuestDetailModal: React.FC<GuestDetailModalProps> = ({ identityId, 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [editCheckIn, setEditCheckIn] = useState('');
+  const [editRate, setEditRate] = useState<string>('');
+  const [editNotes, setEditNotes] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
   useEffect(() => {
     if (!identityId) return;
     setLoading(true);
     setError(null);
+    setSaveSuccess(false);
     api.getGuestDetail(identityId)
-      .then(res => setDetail(res))
+      .then(res => {
+        setDetail(res);
+        setEditCheckIn(res.original_check_in_date || '');
+        setEditRate(res.fixed_rate !== undefined && res.fixed_rate !== null ? String(res.fixed_rate) : '');
+        setEditNotes(res.notes || '');
+      })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
   }, [identityId]);
+
+  const handleSaveTaxConfig = async () => {
+    if (!detail) return;
+    setIsSaving(true);
+    setSaveSuccess(false);
+    try {
+      const rateVal = editRate.trim() ? parseFloat(editRate.trim()) : null;
+      const res = await api.updateGuestIdentity(detail.identity_id, {
+        original_check_in_date: editCheckIn.trim() || undefined,
+        fixed_rate: rateVal,
+        notes: editNotes.trim() || undefined,
+      });
+      setDetail(prev => prev ? {
+        ...prev,
+        original_check_in_date: res.original_check_in_date,
+        fixed_rate: res.fixed_rate,
+        notes: res.notes,
+        county_exempt_date: res.county_exempt_date,
+        state_exempt_date: res.state_exempt_date,
+      } : null);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 4000);
+    } catch (err: any) {
+      alert(err.message || 'Failed to update guest details');
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   if (!identityId) return null;
 
@@ -79,6 +119,98 @@ export const GuestDetailModal: React.FC<GuestDetailModalProps> = ({ identityId, 
 
           {detail && (
             <>
+              {/* Residency & Tax Exemption Settings Card */}
+              <div className="rounded-xl bg-slate-800/50 border border-slate-700/80 p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-amber-400 uppercase tracking-wider flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4" /> Residency & Tax Exemption Configuration
+                  </h3>
+                  {saveSuccess && (
+                    <span className="text-xs px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold flex items-center gap-1.5 animate-fade-in">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Saved Successfully
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+                  <div>
+                    <label className="block text-slate-400 font-semibold mb-1">
+                      Original Check-In Date
+                    </label>
+                    <input
+                      type="date"
+                      value={editCheckIn}
+                      onChange={(e) => setEditCheckIn(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white font-mono focus:border-amber-400 focus:outline-none"
+                    />
+                    <p className="text-[10px] text-slate-500 mt-1">Ground-truth first arrival date</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-400 font-semibold mb-1">
+                      Fixed Rate ($ / Night)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="e.g. 65.00"
+                      value={editRate}
+                      onChange={(e) => setEditRate(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white font-mono focus:border-amber-400 focus:outline-none"
+                    />
+                    <p className="text-[10px] text-slate-500 mt-1">Contracted or negotiated rate</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-400 font-semibold mb-1">
+                      Remarks / Notes
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Special Rate: 55.00 plus tax"
+                      value={editNotes}
+                      onChange={(e) => setEditNotes(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white focus:border-amber-400 focus:outline-none"
+                    />
+                    <p className="text-[10px] text-slate-500 mt-1">Special agreements & remarks</p>
+                  </div>
+                </div>
+
+                {/* Tax Milestones Calculation Summary */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 rounded-lg bg-slate-900/60 border border-slate-800 text-xs">
+                  <div>
+                    <span className="text-slate-400">County Exempt (30+ Days):</span>
+                    <div className="font-bold text-amber-300 font-mono mt-0.5">
+                      {detail.county_exempt_date || 'N/A (Set Check-In)'}
+                    </div>
+                  </div>
+
+                  <div>
+                    <span className="text-slate-400">State Exempt (90+ Days):</span>
+                    <div className="font-bold text-emerald-400 font-mono mt-0.5">
+                      {detail.state_exempt_date || 'N/A (Set Check-In)'}
+                    </div>
+                  </div>
+
+                  <div>
+                    <span className="text-slate-400">Current Tax Status:</span>
+                    <div className="font-bold text-slate-200 mt-0.5">
+                      {detail.tax_exempt_status || 'Standard Taxable'}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end">
+                  <button
+                    onClick={handleSaveTaxConfig}
+                    disabled={isSaving}
+                    className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 font-bold text-xs transition-all shadow-md shadow-amber-500/20"
+                  >
+                    {isSaving ? 'Saving...' : 'Save Residency & Tax Settings'}
+                  </button>
+                </div>
+              </div>
+
               {/* Analytics Assessment Evidence Card */}
               {detail.assessments && detail.assessments.length > 0 && (
                 <div className="rounded-xl bg-slate-800/40 border border-slate-700/80 p-5 space-y-3">

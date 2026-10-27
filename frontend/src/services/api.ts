@@ -10,7 +10,8 @@ import {
   PreviewRecord,
   LoginRequest,
   TokenResponse,
-  User
+  User,
+  Property
 } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL
@@ -146,9 +147,15 @@ export const api = {
   },
 
   // Dashboard
-  async getDashboardSummary(): Promise<DashboardSummary> {
-    const res = await fetchWithTimeout(`${API_BASE}/dashboard/summary`);
+  async getDashboardSummary(property_id?: number): Promise<DashboardSummary> {
+    const url = property_id ? `${API_BASE}/dashboard/summary?property_id=${property_id}` : `${API_BASE}/dashboard/summary`;
+    const res = await fetchWithTimeout(url);
     return handleResponse<DashboardSummary>(res);
+  },
+
+  async getProperties(): Promise<Property[]> {
+    const res = await fetchWithTimeout(`${API_BASE}/dashboard/properties`);
+    return handleResponse<Property[]>(res);
   },
 
   // Reports Upload & Workflow
@@ -206,6 +213,7 @@ export const api = {
     min_appearances?: number;
     min_duration?: number;
     room?: string;
+    property_id?: number;
     page?: number;
     page_size?: number;
     sort_by?: string;
@@ -221,10 +229,10 @@ export const api = {
     return handleResponse<GuestMonitoringResponse>(res);
   },
 
-  getGuestExportUrl(params: { mode?: string; verification_status?: string; search?: string }): string {
+  getGuestExportUrl(params: { mode?: string; verification_status?: string; search?: string; property_id?: number }): string {
     const searchParams = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => {
-      if (v) searchParams.append(k, v);
+      if (v !== undefined && v !== null && v !== '') searchParams.append(k, String(v));
     });
     const token = getStoredToken();
     if (token) searchParams.append('token', token);
@@ -248,6 +256,20 @@ export const api = {
   async getGuestDetail(identityId: number): Promise<GuestDetail> {
     const res = await fetchWithTimeout(`${API_BASE}/guests/${identityId}`);
     return handleResponse<GuestDetail>(res);
+  },
+
+  async updateGuestIdentity(identityId: number, data: {
+    original_check_in_date?: string;
+    fixed_rate?: number | null;
+    verification_status?: string;
+    notes?: string;
+  }): Promise<any> {
+    const res = await fetchWithTimeout(`${API_BASE}/guests/${identityId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    return handleResponse(res);
   },
 
   async mergeGuests(payload: { primary_identity_id: number; secondary_identity_ids: number[] }): Promise<{
