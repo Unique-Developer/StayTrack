@@ -4,10 +4,47 @@ from app.db.session import engine, Base, SessionLocal
 from app.db.models import User, Property, SystemSetting
 from app.core.security import hash_password
 from app.core.config import settings
+from sqlalchemy import inspect, text
+
+def auto_migrate_schema(bind_engine):
+    """
+    Ensures new columns exist in the database (handles SQLite and PostgreSQL).
+    Prevents OperationalError / 500 errors when new columns are added to models.
+    """
+    try:
+        inspector = inspect(bind_engine)
+        tables = inspector.get_table_names()
+        if "guest_identities" in tables:
+            columns = [col["name"] for col in inspector.get_columns("guest_identities")]
+            with bind_engine.connect() as conn:
+                if "original_check_in_date" not in columns:
+                    try:
+                        conn.execute(text("ALTER TABLE guest_identities ADD COLUMN original_check_in_date DATE;"))
+                        print("[Auto-Migrate] Added column original_check_in_date to guest_identities")
+                    except Exception as e:
+                        print(f"[Auto-Migrate Warning] {e}")
+                if "fixed_rate" not in columns:
+                    try:
+                        conn.execute(text("ALTER TABLE guest_identities ADD COLUMN fixed_rate FLOAT;"))
+                        print("[Auto-Migrate] Added column fixed_rate to guest_identities")
+                    except Exception as e:
+                        print(f"[Auto-Migrate Warning] {e}")
+                if "custom_tax_exempt_status" not in columns:
+                    try:
+                        conn.execute(text("ALTER TABLE guest_identities ADD COLUMN custom_tax_exempt_status VARCHAR(50);"))
+                        print("[Auto-Migrate] Added column custom_tax_exempt_status to guest_identities")
+                    except Exception as e:
+                        print(f"[Auto-Migrate Warning] {e}")
+                conn.commit()
+    except Exception as err:
+        print(f"[Auto-Migrate Error] {err}")
 
 def init_db(db: Session = None):
     # Create all tables if they don't exist
     Base.metadata.create_all(bind=engine)
+
+    # Automatically apply schema migrations for new columns
+    auto_migrate_schema(engine)
     
     close_db = False
     if db is None:
