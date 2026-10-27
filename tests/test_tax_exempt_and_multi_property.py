@@ -115,7 +115,8 @@ def test_tax_exempt_csv_and_pdf_export_consistency(client, db_session):
     assert "County Tax Exempt Start Date (30+ Days)" in header
     assert "State Tax Exempt Date (90+ Days)" in header
     assert "Tax Exemption Status" in header
-    assert "Fix Rate" in header
+    assert "Fix Rate" not in header
+    assert "Confirmation Numbers" in header
     assert len(rows) > 1  # Contains data rows
 
     # Test PDF Export
@@ -185,3 +186,84 @@ def test_90plus_days_tab_and_export(client, db_session):
     assert len(rows_90) > 1
     for r in rows_90[1:]:
         assert int(r[4]) >= 90  # Total Consecutive Nights column
+
+def test_data_consistency_between_tab_csv_and_pdf(client, db_session):
+    prop = db_session.query(Property).filter(Property.property_code == "3756").first()
+    assert prop is not None
+
+    # Seed 3 guests: 95 nights, 42 nights, and 6 nights (non-qualifying)
+    seed_sample_records(db_session, prop.id, "GUEST NINETYFIVE", 95, "2026-06-01", room="301")
+    seed_sample_records(db_session, prop.id, "GUEST FORTYTWO", 42, "2026-08-20", room="302")
+    seed_sample_records(db_session, prop.id, "GUEST SIXDAYS", 6, "2026-09-28", room="303")
+
+    # 1. Test 90+ Days Tab (continuous_stay_90)
+    mon_90 = client.get(f"/api/v1/guests/monitoring?mode=continuous_stay_90&property_id={prop.id}").json()
+    items_90 = mon_90["items"]
+    assert len(items_90) == 1
+    assert items_90[0]["guest_name"] == "GUEST NINETYFIVE"
+    assert items_90[0]["stay_duration_days"] == 95
+
+    # CSV for 90+ days
+    csv_90 = client.get(f"/api/v1/guests/export?mode=continuous_stay_90&property_id={prop.id}")
+    assert csv_90.status_code == 200
+    rows_90 = list(csv.reader(io.StringIO(csv_90.text)))
+    assert len(rows_90) == 2  # 1 header + 1 data row
+    assert rows_90[1][0] == "GUEST NINETYFIVE"
+    assert int(rows_90[1][4]) == 95
+
+    # PDF for 90+ days
+    pdf_90 = client.get(f"/api/v1/guests/export-pdf?mode=continuous_stay_90&property_id={prop.id}")
+    assert pdf_90.status_code == 200
+    assert pdf_90.content[:4] == b"%PDF"
+
+    # 2. Test 30+ Days Tab (continuous_stay)
+    mon_30 = client.get(f"/api/v1/guests/monitoring?mode=continuous_stay&property_id={prop.id}").json()
+    items_30 = mon_30["items"]
+    assert len(items_30) == 2  # 95 and 42; 6-day stay MUST BE EXCLUDED
+    guest_names_30 = [i["guest_name"] for i in items_30]
+    assert "GUEST NINETYFIVE" in guest_names_30
+    assert "GUEST FORTYTWO" in guest_names_30
+    assert "GUEST SIXDAYS" not in guest_names_30
+
+    # CSV for 30+ days: MUST MATCH monitoring table count and names!
+    csv_30 = client.get(f"/api/v1/guests/export?mode=continuous_stay&property_id={prop.id}")
+    assert csv_30.status_code == 200
+    rows_30 = list(csv.reader(io.StringIO(csv_30.text)))
+    assert len(rows_30) == 3  # 1 header + 2 data rows
+    csv_names_30 = [r[0] for r in rows_30[1:]]
+    assert csv_names_30 == guest_names_30
+
+    # PDF for 30+ days
+    pdf_30 = client.get(f"/api/v1/guests/export-pdf?mode=continuous_stay&property_id={prop.id}")
+    assert pdf_30.status_code == 200
+    assert pdf_30.content[:4] == b"%PDF"
+
+    # 3. Test Room Filter consistency across Tab, CSV, and PDF
+    mon_rm = client.get(f"/api/v1/guests/monitoring?mode=continuous_stay&property_id={prop.id}&room=302").json()
+    assert len(mon_rm["items"]) == 1
+    assert mon_rm["items"][0]["guest_name"] == "GUEST FORTYTWO"
+
+    csv_rm = client.get(f"/api/v1/guests/export?mode=continuous_stay&property_id={prop.id}&room=302")
+    rows_rm = list(csv.reader(io.StringIO(csv_rm.text)))
+    assert len(rows_rm) == 2  # 1 header + 1 data row
+    assert rows_rm[1][0] == "GUEST FORTYTWO"
+
+    pdf_rm = client.get(f"/api/v1/guests/export-pdf?mode=continuous_stay&property_id={prop.id}&room=302")
+    assert pdf_rm.status_code == 200
+
+    # 4. Test 30-89 Days Sub-tier Filter (continuous_stay_30_89)
+    mon_30_89 = client.get(f"/api/v1/guests/monitoring?mode=continuous_stay_30_89&property_id={prop.id}").json()
+    items_30_89 = mon_30_89["items"]
+    assert len(items_30_89) == 1
+    assert items_30_89[0]["guest_name"] == "GUEST FORTYTWO"
+    assert items_30_89[0]["stay_duration_days"] == 42
+
+    csv_30_89 = client.get(f"/api/v1/guests/export?mode=continuous_stay_30_89&property_id={prop.id}")
+    assert csv_30_89.status_code == 200
+    rows_30_89 = list(csv.reader(io.StringIO(csv_30_89.text)))
+    assert len(rows_30_89) == 2
+    assert rows_30_89[1][0] == "GUEST FORTYTWO"
+
+    pdf_30_89 = client.get(f"/api/v1/guests/export-pdf?mode=continuous_stay_30_89&property_id={prop.id}")
+    assert pdf_30_89.status_code == 200
+    assert pdf_30_89.content[:4] == b"%PDF"

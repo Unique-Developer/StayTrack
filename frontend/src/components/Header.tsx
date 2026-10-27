@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, UploadCloud, RefreshCw, AlertCircle, LogOut, Clock, User as UserIcon } from 'lucide-react';
+import { Calendar, UploadCloud, RefreshCw, AlertCircle, LogOut, Clock, User as UserIcon, Menu } from 'lucide-react';
 import { DashboardSummary, User } from '../types';
 import { getCurrentNYTimeDisplay } from '../utils/dateUtils';
 import { MotelSwitcher } from './MotelSwitcher';
@@ -11,6 +11,7 @@ interface HeaderProps {
   isRefreshing: boolean;
   user?: User | null;
   onLogout?: () => void;
+  onToggleMobileMenu?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -19,7 +20,8 @@ export const Header: React.FC<HeaderProps> = ({
   onRefresh,
   isRefreshing,
   user,
-  onLogout
+  onLogout,
+  onToggleMobileMenu
 }) => {
   const [nyTime, setNyTime] = useState<string>(() => getCurrentNYTimeDisplay());
 
@@ -40,38 +42,39 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="h-16 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-4 md:px-6 flex items-center justify-between sticky top-0 z-30">
+    <header className="h-16 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-3 md:px-6 flex items-center justify-between sticky top-0 z-30">
       {/* Motel Switcher & Rolling Window Indicator */}
-      <div className="flex items-center gap-3 overflow-hidden">
+      <div className="flex items-center gap-2.5 overflow-hidden">
+        {/* Mobile Menu Hamburger */}
+        {onToggleMobileMenu && (
+          <button
+            type="button"
+            onClick={onToggleMobileMenu}
+            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white md:hidden cursor-pointer shrink-0"
+            title="Open Menu"
+            aria-label="Open Navigation Menu"
+          >
+            <Menu className="w-5 h-5 text-amber-400" />
+          </button>
+        )}
+
         {/* Prominent Motel Switcher */}
         <MotelSwitcher variant="header" />
 
-        <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800/80 border border-slate-700/60 text-xs truncate">
-          <Calendar className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-          <span className="text-slate-400 font-medium hidden sm:inline">Rolling Window:</span>
-          {summary?.active_window_start && summary?.active_window_end ? (
-            <span className="font-semibold text-slate-100 truncate">
+        {/* Clean Rolling Window Indicator */}
+        {summary?.active_window_start && summary?.active_window_end && (
+          <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-800/60 border border-slate-700/60 text-xs">
+            <Calendar className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <span className="text-slate-400 font-medium">30-Day Window:</span>
+            <span className="font-semibold text-slate-200">
               {summary.active_window_start} <span className="text-slate-500">to</span> {summary.active_window_end}
-              <span className="ml-2 px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[11px] font-bold">
-                {summary.reporting_dates_covered} / 30 Days Active ({summary.window_coverage_pct}%)
-              </span>
             </span>
-          ) : (
-            <span className="text-slate-400 italic">No reports imported yet</span>
-          )}
-        </div>
-
-        {summary && summary.missing_reporting_dates_count > 0 && (
-          <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-medium">
-            <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
-            <span>{summary.missing_reporting_dates_count} missing date(s) in span</span>
           </div>
         )}
 
         {/* Live New York Time Badge */}
-        <div className="hidden xl:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800/80 border border-slate-700/60 text-xs font-mono text-slate-300" title="Motel Local Time (America/New_York)">
+        <div className="hidden xl:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/60 border border-slate-700/60 text-xs font-mono text-slate-300" title="Motel Local Time (America/New_York)">
           <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-          <span className="text-slate-400 font-medium">NY Time:</span>
           <span className="font-semibold text-amber-300">{nyTime}</span>
         </div>
       </div>

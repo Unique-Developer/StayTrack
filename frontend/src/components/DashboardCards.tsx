@@ -41,9 +41,9 @@ export const DashboardCards: React.FC<DashboardCardsProps> = ({ summary, onNavig
       actionTab: 'records'
     },
     {
-      title: 'Continuous-Stay Guests',
+      title: 'Tax-Exempt Stays',
       value: summary.continuous_stay_count,
-      subtext: '>= 30 days continuous (Mode A)',
+      subtext: '>= 30 & 90 days tax exempt',
       icon: Flame,
       color: 'from-amber-500/20 to-amber-600/10 text-amber-400 border-amber-500/30',
       actionTab: 'monitoring'

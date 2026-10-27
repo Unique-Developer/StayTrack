@@ -144,6 +144,73 @@ def init_db(db: Session = None):
                     except Exception as err:
                         print(f"[Init DB] Could not backfill report #{r.id}: {err}")
 
+        # 5. Seed Motel 6 Sample Data if property exists but has no records
+        from app.db.models import GuestRecord, GuestIdentity
+        from app.analytics.stay_detector import recalculate_all_analytics
+        m6_records_count = (
+            db.query(GuestRecord)
+            .join(UploadedReport, GuestRecord.report_id == UploadedReport.id)
+            .filter(UploadedReport.property_id == prop_m6.id)
+            .count()
+        )
+        if m6_records_count == 0:
+            sample_m6_guests = [
+                ("MARCUS HOLLOWAY", 105, "2026-06-20", "114", 65.00, "90+ Days Full State & County Tax Exempt"),
+                ("KIERRA WASHINGTON", 92, "2026-07-05", "108", 70.00, "90+ Days Full State & County Tax Exempt"),
+                ("DARRYL VANCE", 45, "2026-08-20", "102", 75.00, "30+ Days County Tax Exempt"),
+                ("SAMANTHA PATEL", 35, "2026-09-01", "205", 72.50, "30+ Days County Tax Exempt"),
+                ("BRANDON MCKENZIE", 30, "2026-09-06", "210", 68.00, "30+ Days County Tax Exempt"),
+            ]
+            for g_name, g_nights, g_cin_str, g_room, g_rate, g_notes in sample_m6_guests:
+                c_in = datetime.date.fromisoformat(g_cin_str)
+                c_out = c_in + datetime.timedelta(days=g_nights)
+                unique_suffix = f"{g_name.replace(' ', '_')}_{c_out.isoformat()}"
+                rep = UploadedReport(
+                    property_id=prop_m6.id,
+                    original_filename=f"departures_motel6_{unique_suffix}.pdf",
+                    stored_filename=f"stored_motel6_{unique_suffix}.pdf",
+                    file_hash=f"hash_motel6_{unique_suffix}",
+                    file_size_bytes=2048,
+                    report_type="departures",
+                    report_date=c_out,
+                    report_run_datetime=f"{c_out.strftime('%B %d, %Y')} • 07:00 AM",
+                    status="completed",
+                    total_rows_extracted=1,
+                    valid_rows_count=1,
+                    is_active=True
+                )
+                db.add(rep)
+                db.flush()
+
+                ident = GuestIdentity(
+                    property_id=prop_m6.id,
+                    primary_first_name=g_name.split()[0],
+                    primary_last_name=g_name.split()[-1],
+                    normalized_name=g_name,
+                    verification_status="verified",
+                    fixed_rate=g_rate,
+                    notes=g_notes
+                )
+                db.add(ident)
+                db.flush()
+
+                rec = GuestRecord(
+                    report_id=rep.id,
+                    guest_identity_id=ident.id,
+                    confirmation_number=f"M6CONF{ident.id}89",
+                    room_number=g_room,
+                    raw_guest_name=g_name,
+                    normalized_name=g_name,
+                    check_in_date=c_in,
+                    number_of_nights=g_nights,
+                    calculated_departure_date=c_out,
+                    status="departed"
+                )
+                db.add(rec)
+            db.commit()
+            recalculate_all_analytics(db, prop_m6.id)
+            print("[Init DB] Seeded 5 sample continuous long-stay guests (30+ and 90+ days) for Motel 6.")
+
         db.commit()
         print("[Init DB] Database initialization completed successfully.")
     except Exception as e:

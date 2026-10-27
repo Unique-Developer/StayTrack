@@ -1,6 +1,6 @@
 import json
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi import APIRouter, Depends, HTTPException, Body, Query
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.db.models import (
@@ -18,6 +18,7 @@ router = APIRouter(prefix="/review", tags=["review"])
 
 @router.get("/queue")
 def get_review_queue(
+    property_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -26,11 +27,10 @@ def get_review_queue(
     1. Proposed identity matches (e.g. same name across different rooms/dates)
     2. Assessments marked 'Needs Verification'
     """
-    proposed_matches = (
-        db.query(GuestIdentityMatch)
-        .filter(GuestIdentityMatch.status == "proposed")
-        .all()
-    )
+    match_query = db.query(GuestIdentityMatch).filter(GuestIdentityMatch.status == "proposed")
+    if property_id:
+        match_query = match_query.join(GuestIdentity, GuestIdentityMatch.guest_identity_id == GuestIdentity.id).filter(GuestIdentity.property_id == property_id)
+    proposed_matches = match_query.all()
 
     matches_list = []
     for m in proposed_matches:
@@ -57,14 +57,16 @@ def get_review_queue(
             } if ident else None
         })
 
-    uncertain_assessments = (
+    assess_query = (
         db.query(StayAssessment)
         .filter(
             StayAssessment.is_active_in_window == True,
             StayAssessment.verification_status == "Needs Verification"
         )
-        .all()
     )
+    if property_id:
+        assess_query = assess_query.filter(StayAssessment.property_id == property_id)
+    uncertain_assessments = assess_query.all()
 
     assessments_list = []
     for a in uncertain_assessments:

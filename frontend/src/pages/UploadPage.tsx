@@ -14,12 +14,14 @@ import {
 import { api } from '../services/api';
 import { ReportPreviewFile, PreviewRecord } from '../types';
 import { getTodayNYDateString } from '../utils/dateUtils';
+import { useProperty } from '../context/PropertyContext';
 
 interface UploadPageProps {
   onImportComplete: () => void;
 }
 
 export const UploadPage: React.FC<UploadPageProps> = ({ onImportComplete }) => {
+  const { currentPropertyId, currentProperty } = useProperty();
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<ReportPreviewFile[]>([]);
   const [loadingPreview, setLoadingPreview] = useState(false);
@@ -48,7 +50,7 @@ export const UploadPage: React.FC<UploadPageProps> = ({ onImportComplete }) => {
     setLoadingPreview(true);
 
     try {
-      const results = await api.previewReports(validPdfs);
+      const results = await api.previewReports(validPdfs, currentPropertyId);
       setPreviews(results);
     } catch (err: any) {
       setErrorMessage(err.message || 'Failed to parse reports');
@@ -84,6 +86,7 @@ export const UploadPage: React.FC<UploadPageProps> = ({ onImportComplete }) => {
       const payload = {
         files: previews.map((p) => ({
           temp_file_id: p.temp_file_id,
+          property_id: currentPropertyId,
           original_filename: p.original_filename,
           report_date: p.report_date || getTodayNYDateString(),
           report_run_datetime: p.report_run_datetime,
@@ -106,15 +109,17 @@ export const UploadPage: React.FC<UploadPageProps> = ({ onImportComplete }) => {
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
-      {/* Title */}
-      <div>
-        <h1 className="text-2xl font-black text-white tracking-tight flex items-center gap-2.5">
-          <UploadCloud className="w-6 h-6 text-amber-400" /> Upload Daily Reports
-        </h1>
-        <p className="text-xs text-slate-400 mt-1">
-          Upload daily "Departures List" PDFs to extract guest stay records, detect continuous stays, and update the
-          rolling window analytics.
-        </p>
+      {/* Title & Target Motel */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-black text-white tracking-tight flex items-center gap-2.5">
+            <UploadCloud className="w-6 h-6 text-amber-400" /> Upload Daily Reports
+          </h1>
+          <p className="text-xs text-slate-400 mt-1 flex items-center gap-1.5">
+            <span>Importing reports into:</span>
+            <span className="font-bold text-amber-400">{currentProperty?.name} (#{currentProperty?.property_code})</span>
+          </p>
+        </div>
       </div>
 
       {/* Alert Banners */}

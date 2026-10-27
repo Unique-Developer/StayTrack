@@ -9,7 +9,8 @@ import {
   Settings,
   ShieldCheck,
   Building2,
-  LogOut
+  LogOut,
+  X
 } from 'lucide-react';
 import { User } from '../types';
 import { useProperty } from '../context/PropertyContext';
@@ -21,6 +22,8 @@ interface SidebarProps {
   reviewCount: number;
   user?: User | null;
   onLogout?: () => void;
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -28,7 +31,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectTab,
   reviewCount,
   user,
-  onLogout
+  onLogout,
+  mobileOpen = false,
+  onMobileClose
 }) => {
   const { currentPropertyId, currentProperty } = useProperty();
 
@@ -57,23 +62,39 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return name.slice(0, 2).toUpperCase();
   };
 
-  return (
-    <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col flex-shrink-0 min-h-screen text-slate-300">
+  const handleNavClick = (tab: string) => {
+    onSelectTab(tab);
+    if (onMobileClose) onMobileClose();
+  };
+
+  const sidebarContent = (
+    <div className="flex flex-col h-full">
       {/* Brand & Tagline */}
       <div className="p-5 border-b border-slate-800/80">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center text-slate-950 font-black text-xl shadow-lg shadow-amber-500/20">
-            {currentPropertyId === 2 ? 'M6' : 'S6'}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center text-slate-950 font-black text-xl shadow-lg shadow-amber-500/20">
+              {currentPropertyId === 2 ? 'M6' : 'S6'}
+            </div>
+            <div>
+              <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-1.5">
+                StayTrack
+                <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                  PRO
+                </span>
+              </h1>
+              <p className="text-[11px] text-slate-400 font-medium">Daily Reports. Continuous Insights.</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-1.5">
-              StayTrack
-              <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                PRO
-              </span>
-            </h1>
-            <p className="text-[11px] text-slate-400 font-medium">Daily Reports. Continuous Insights.</p>
-          </div>
+
+          {onMobileClose && (
+            <button
+              onClick={onMobileClose}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 md:hidden cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          )}
         </div>
 
         {/* Motel Switcher Segmented Pills */}
@@ -93,8 +114,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           return (
             <button
               key={item.id}
-              onClick={() => onSelectTab(item.id)}
-              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all cursor-pointer ${
+              onClick={() => handleNavClick(item.id)}
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer ${
                 isActive
                   ? 'bg-amber-500 text-slate-950 font-semibold shadow-md shadow-amber-500/20'
                   : 'text-slate-300 hover:text-white hover:bg-slate-800/70'
@@ -147,6 +168,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
         </div>
       </div>
-    </aside>
+    </div>
+  );
+
+  return (
+    <>
+      {/* Desktop Persistent Sidebar */}
+      <aside className="hidden md:flex w-64 bg-slate-900 border-r border-slate-800 flex-col flex-shrink-0 min-h-screen text-slate-300">
+        {sidebarContent}
+      </aside>
+
+      {/* Mobile Slide-Over Drawer */}
+      {mobileOpen && (
+        <div className="fixed inset-0 z-50 flex md:hidden animate-in fade-in duration-200">
+          <div
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm"
+            onClick={onMobileClose}
+          />
+          <aside className="relative w-72 max-w-[85vw] bg-slate-900 border-r border-slate-800 flex flex-col min-h-screen text-slate-300 shadow-2xl z-10 animate-in slide-in-from-left duration-200">
+            {sidebarContent}
+          </aside>
+        </div>
+      )}
+    </>
   );
 };

@@ -149,6 +149,7 @@ class GuestMonitoringResponse(BaseModel):
     page: int
     page_size: int
     items: List[GuestAssessmentItem]
+    counts: Optional[Dict[str, int]] = None
 
 # Settings Schemas
 class SettingsResponse(BaseModel):

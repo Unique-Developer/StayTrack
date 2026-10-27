@@ -1,17 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { History, Download, Trash2, Calendar, FileText, CheckCircle2, RefreshCw, Clock } from 'lucide-react';
+import { History, Download, Trash2, Calendar, FileText, CheckCircle2, RefreshCw, Clock, Loader2 } from 'lucide-react';
 import { api } from '../services/api';
 import { ReportItem } from '../types';
 import { formatNYDateTime } from '../utils/dateUtils';
+import { useProperty } from '../context/PropertyContext';
 
 export const ReportHistoryPage: React.FC = () => {
+  const { currentPropertyId, currentProperty } = useProperty();
   const [reports, setReports] = useState<ReportItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const loadReports = () => {
     setLoading(true);
-    api.getReports()
+    api.getReports(currentPropertyId)
       .then((res) => setReports(res))
       .catch((err) => console.error(err))
       .finally(() => setLoading(false));
@@ -19,7 +21,7 @@ export const ReportHistoryPage: React.FC = () => {
 
   useEffect(() => {
     loadReports();
-  }, []);
+  }, [currentPropertyId]);
 
   const handleDelete = async (id: number) => {
     if (!window.confirm('Are you sure you want to delete this report? This will remove its guest records and recalculate the rolling window.')) {
@@ -43,20 +45,17 @@ export const ReportHistoryPage: React.FC = () => {
           <h1 className="text-2xl font-black text-white tracking-tight flex items-center gap-2.5">
             <History className="w-6 h-6 text-amber-400" /> Report History ({reports.length})
           </h1>
-          <p className="text-xs text-slate-400 mt-1">
-            Historical archive of all uploaded daily reports. Original PDFs are stored permanently.
+          <p className="text-xs text-slate-400 mt-1 flex items-center gap-2">
+            <span>Historical archive of uploaded PDF reports for</span>
+            <span className="font-bold text-amber-400">{currentProperty?.name} (#{currentProperty?.property_code})</span>
+            {loading && <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />}
           </p>
         </div>
 
         <div className="flex items-center gap-3">
-          <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-mono">
-            <Clock className="w-3.5 h-3.5 text-amber-400" />
-            <span>Timezone: New York (EDT/EST)</span>
-          </div>
-
           <button
             onClick={loadReports}
-            className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+            className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer border border-slate-700"
             title="Refresh"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-amber-400' : ''}`} />

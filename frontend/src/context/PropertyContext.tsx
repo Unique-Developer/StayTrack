@@ -8,6 +8,8 @@ interface PropertyContextType {
   currentProperty: Property | null;
   setCurrentPropertyId: (id: number) => void;
   isLoading: boolean;
+  isSwitchingProperty: boolean;
+  setIsSwitchingProperty: (val: boolean) => void;
   refreshProperties: () => Promise<void>;
 }
 
@@ -16,6 +18,7 @@ const PropertyContext = createContext<PropertyContextType | undefined>(undefined
 export const PropertyProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [properties, setProperties] = useState<Property[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isSwitchingProperty, setIsSwitchingProperty] = useState<boolean>(false);
   const [currentPropertyId, setCurrentPropertyIdState] = useState<number>(() => {
     const saved = localStorage.getItem('staytrack_property_id');
     return saved ? parseInt(saved, 10) : 1;
@@ -42,9 +45,15 @@ export const PropertyProvider: React.FC<{ children: ReactNode }> = ({ children }
   }, []);
 
   const setCurrentPropertyId = (id: number) => {
+    if (id === currentPropertyId) return;
+    setIsSwitchingProperty(true);
     setCurrentPropertyIdState(id);
     localStorage.setItem('staytrack_property_id', String(id));
     window.dispatchEvent(new CustomEvent('staytrack:property_changed', { detail: { propertyId: id } }));
+    // Provide a smooth visible feedback window for switching transition
+    setTimeout(() => {
+      setIsSwitchingProperty(false);
+    }, 700);
   };
 
   const currentProperty = properties.find((p) => p.id === currentPropertyId) || null;
@@ -57,6 +66,8 @@ export const PropertyProvider: React.FC<{ children: ReactNode }> = ({ children }
         currentProperty,
         setCurrentPropertyId,
         isLoading,
+        isSwitchingProperty,
+        setIsSwitchingProperty,
         refreshProperties: loadProperties,
       }}
     >

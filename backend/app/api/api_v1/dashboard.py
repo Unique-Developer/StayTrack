@@ -192,7 +192,7 @@ def get_dashboard_summary(
         total_reports_imported=total_reports,
         reporting_dates_covered=distinct_dates_count,
         unique_guest_identities=unique_guests,
-        continuous_stay_count=continuous_stays,
+        continuous_stay_count=continuous_stay_count,
         needs_verification_count=needs_verification,
         missing_reporting_dates_count=len(missing_dates),
         missing_dates=missing_dates,

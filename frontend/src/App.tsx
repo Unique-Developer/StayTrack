@@ -18,12 +18,13 @@ import { Loader2 } from 'lucide-react';
 
 function MainApp() {
   const { user, isAuthenticated, isLoading, logout } = useAuth();
-  const { currentPropertyId, currentProperty } = useProperty();
+  const { currentPropertyId, currentProperty, isSwitchingProperty } = useProperty();
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
   const [summary, setSummary] = useState<DashboardSummary | undefined>(undefined);
   const [reviewCount, setReviewCount] = useState<number>(0);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
 
   const loadDashboardData = async () => {
     if (!isAuthenticated) return;
@@ -74,24 +75,45 @@ function MainApp() {
 
   return (
     <div className="flex min-h-screen bg-slate-950 text-slate-100 font-sans antialiased">
-      {/* Sidebar */}
+      {/* Sidebar (Responsive desktop + mobile drawer) */}
       <Sidebar
         currentTab={currentTab}
         onSelectTab={setCurrentTab}
         reviewCount={reviewCount}
         user={user}
         onLogout={logout}
+        mobileOpen={mobileMenuOpen}
+        onMobileClose={() => setMobileMenuOpen(false)}
       />
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 relative">
+        {/* Top Progress Loading Line for Motel Switch */}
+        {isSwitchingProperty && (
+          <div className="h-1 w-full bg-slate-900 overflow-hidden absolute top-0 left-0 right-0 z-50">
+            <div className="h-full bg-gradient-to-r from-amber-500 via-emerald-400 to-amber-500 animate-pulse w-full" />
+          </div>
+        )}
+
+        {/* Floating Motel Switch Notification Indicator */}
+        {isSwitchingProperty && (
+          <div className="fixed top-5 right-6 z-50 flex items-center gap-3 px-4 py-2.5 rounded-2xl bg-slate-900/95 border border-amber-500/40 text-amber-300 shadow-2xl backdrop-blur-md animate-in fade-in slide-in-from-top-3 duration-200">
+            <Loader2 className="w-4 h-4 text-amber-400 animate-spin shrink-0" />
+            <div className="text-xs">
+              <span className="font-bold text-white">Switching to {currentProperty?.name || 'Selected Motel'}...</span>
+              <span className="text-[10px] text-amber-400/80 block font-mono">Loading 30 & 90-day continuous stay records</span>
+            </div>
+          </div>
+        )}
+
         <Header
           summary={summary}
           onUploadClick={() => setCurrentTab('upload')}
           onRefresh={loadDashboardData}
-          isRefreshing={isRefreshing}
+          isRefreshing={isRefreshing || isSwitchingProperty}
           user={user}
           onLogout={logout}
+          onToggleMobileMenu={() => setMobileMenuOpen(prev => !prev)}
         />
 
         <main className="flex-1 p-6 md:p-8 overflow-y-auto">

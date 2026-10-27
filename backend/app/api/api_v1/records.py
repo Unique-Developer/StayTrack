@@ -17,6 +17,7 @@ def get_all_records(
     search: Optional[str] = Query(None),
     report_date: Optional[str] = Query(None),
     room: Optional[str] = Query(None),
+    property_id: Optional[int] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     sort_by: str = Query("check_in_date"),
@@ -29,6 +30,9 @@ def get_all_records(
         .join(UploadedReport, GuestRecord.report_id == UploadedReport.id)
         .filter(UploadedReport.is_active == True)
     )
+
+    if property_id:
+        query = query.filter(UploadedReport.property_id == property_id)
 
     if report_date:
         query = query.filter(UploadedReport.report_date == report_date)
@@ -104,6 +108,7 @@ def export_all_records(
     search: Optional[str] = Query(None),
     report_date: Optional[str] = Query(None),
     room: Optional[str] = Query(None),
+    property_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -112,6 +117,8 @@ def export_all_records(
         .join(UploadedReport, GuestRecord.report_id == UploadedReport.id)
         .filter(UploadedReport.is_active == True)
     )
+    if property_id:
+        query = query.filter(UploadedReport.property_id == property_id)
     if report_date:
         query = query.filter(UploadedReport.report_date == report_date)
     if room:

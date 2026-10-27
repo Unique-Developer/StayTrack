@@ -18,7 +18,8 @@ def get_continuous_stays(
     db: Session,
     property_id: Optional[int] = None,
     min_nights: int = 7,
-    search: Optional[str] = None
+    search: Optional[str] = None,
+    room: Optional[str] = None
 ) -> Tuple[str, List[Dict[str, Any]], Dict[str, int]]:
     """
     Extracts and evaluates uninterrupted continuous occupancy chains for all guests.
@@ -194,6 +195,14 @@ def get_continuous_stays(
             or any(s in cf.upper() for cf in r["confirmations"])
         ]
 
+    # Optional room filtering
+    if room and isinstance(room, str):
+        rm_filter = room.strip().upper()
+        results = [
+            r for r in results
+            if any(rm_filter in rm.upper() for rm in r["rooms_list"])
+        ]
+
     # Order from 90+ days descending to lesser continuous stay customers
     results.sort(key=lambda x: (-x["total_nights"], x["check_in"], x["guest_name"]))
 
@@ -203,8 +212,6 @@ def get_continuous_stays(
         k = r["category_key"]
         if k in counts:
             counts[k] += 1
-
-    return prop_name, results, counts
 
     return prop_name, results, counts
 
@@ -596,12 +603,11 @@ def generate_long_stay_pdf(
         Paragraph("STAY PERIOD", th_style),
         Paragraph("DURATION & TIER", th_center),
         Paragraph("TAX EXEMPTION DATES", th_style),
-        Paragraph("RATE & EXTENSIONS", th_center),
         Paragraph("CONFIRMATIONS", th_style),
     ]]
 
-    # 6 columns summing to 720 pt
-    col_widths = [145, 115, 80, 150, 110, 120]
+    # 5 columns summing to 720 pt
+    col_widths = [175, 130, 95, 170, 150]
 
     tier_labels = {
         "90+ Nights": ("90+ DAYS CONTINUOUS  •  STATE & COUNTY TAX EXEMPT (FULL RESIDENCY)", "#10b981", "#122b24"),
@@ -636,7 +642,7 @@ def generate_long_stay_pdf(
         )
         empty_row = [
             Paragraph("No continuous stay records found matching the criteria.", empty_style),
-            "", "", "", "", ""
+            "", "", "", ""
         ]
         table_data.append(empty_row)
     else:
@@ -657,7 +663,7 @@ def generate_long_stay_pdf(
                 )
                 divider_row = [
                     Paragraph(f"▶  {tier_title}", divider_style),
-                    "", "", "", "", ""
+                    "", "", "", ""
                 ]
                 table_data.append(divider_row)
 
@@ -670,13 +676,9 @@ def generate_long_stay_pdf(
             else:
                 room_text = f"{s['rooms_count']} Room"
 
-            rate_line = ""
-            if s.get("fixed_rate"):
-                rate_line = f"<br/><font color='#fbbf24'><b>Fixed Rate:</b> ${s['fixed_rate']:.2f}/nt</font>"
-
             guest_cell = [
                 Paragraph(s["guest_name"], guest_name_style),
-                Paragraph(f"<font color='#38bdf8'><b>●</b></font> {room_text}{rate_line}", guest_sub_style)
+                Paragraph(f"<font color='#38bdf8'><b>●</b></font> {room_text}", guest_sub_style)
             ]
 
             # 2. Stay Period column
@@ -718,49 +720,14 @@ def generate_long_stay_pdf(
                 Paragraph(f"<font color='{status_color}'><b>● {tax_status_str}</b></font>", date_sub_style)
             ]
 
-            # 5. Rate & Extensions column
-            rate_booking_cell = []
-            if s["ext_count"] > 0:
-                rate_booking_cell.append(PillTag(
-                    f"Extended ({s['ext_count']} Renewals)",
-                    bg_hex="#3b2b13",
-                    text_hex="#fbbf24",
-                    width=100,
-                    height=15,
-                    radius=3.5,
-                    font_size=6.8
-                ))
-            else:
-                rate_booking_cell.append(PillTag(
-                    "Single Booking (0 Ext)",
-                    bg_hex="#161e31",
-                    text_hex="#94a3b8",
-                    width=100,
-                    height=15,
-                    radius=3.5,
-                    font_size=6.8
-                ))
-            if s.get("fixed_rate"):
-                rate_booking_cell.append(Spacer(1, 2))
-                rate_booking_cell.append(PillTag(
-                    f"${s['fixed_rate']:.2f} / night",
-                    bg_hex="#132a24",
-                    text_hex="#34d399",
-                    width=100,
-                    height=15,
-                    radius=3.5,
-                    font_size=7
-                ))
-
-            # 6. Confirmation tags
-            conf_flowable = ConfGridFlowable(s["confirmations"], max_width=120)
+            # 5. Confirmation tags
+            conf_flowable = ConfGridFlowable(s["confirmations"], max_width=140)
 
             row = [
                 guest_cell,
                 period_cell,
                 duration_tier_cell,
                 tax_cell,
-                rate_booking_cell,
                 conf_flowable
             ]
             table_data.append(row)

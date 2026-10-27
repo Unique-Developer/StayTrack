@@ -11,8 +11,10 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import { ReviewQueueData } from '../types';
+import { useProperty } from '../context/PropertyContext';
 
 export const ReviewQueuePage: React.FC = () => {
+  const { currentPropertyId, currentProperty } = useProperty();
   const [data, setData] = useState<ReviewQueueData | null>(null);
   const [loading, setLoading] = useState(false);
   const [processingId, setProcessingId] = useState<number | null>(null);
@@ -34,7 +36,7 @@ export const ReviewQueuePage: React.FC = () => {
 
   const loadQueue = () => {
     setLoading(true);
-    api.getReviewQueue()
+    api.getReviewQueue(currentPropertyId)
       .then((res) => {
         setData(res);
         // Clean up selections that might not be in the queue anymore
@@ -53,7 +55,7 @@ export const ReviewQueuePage: React.FC = () => {
 
   useEffect(() => {
     loadQueue();
-  }, []);
+  }, [currentPropertyId]);
 
   // Filter proposed matches based on search term
   const filteredMatches = (data?.proposed_matches || []).filter((m) => {
@@ -239,23 +241,26 @@ export const ReviewQueuePage: React.FC = () => {
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-24">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-black text-white tracking-tight flex items-center gap-2.5">
             <AlertTriangle className="w-6 h-6 text-amber-400" /> Review Queue ({totalPending})
           </h1>
-          <p className="text-xs text-slate-400 mt-1">
-            Resolve ambiguous identity matches and verify uncertain continuous stays.
+          <p className="text-xs text-slate-400 mt-1 flex items-center gap-2">
+            <span>Identity verification queue for</span>
+            <span className="font-bold text-amber-400">{currentProperty?.name} (#{currentProperty?.property_code})</span>
           </p>
         </div>
 
-        <button
-          onClick={loadQueue}
-          className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
-          title="Refresh Queue"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-amber-400' : ''}`} />
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={loadQueue}
+            className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer border border-slate-700"
+            title="Refresh Queue"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-amber-400' : ''}`} />
+          </button>
+        </div>
       </div>
 
       {/* Dismissible Feedback Banner */}

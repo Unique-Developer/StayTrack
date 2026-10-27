@@ -159,9 +159,12 @@ export const api = {
   },
 
   // Reports Upload & Workflow
-  async previewReports(files: File[]): Promise<ReportPreviewFile[]> {
+  async previewReports(files: File[], propertyId?: number): Promise<ReportPreviewFile[]> {
     const formData = new FormData();
     files.forEach(f => formData.append('files', f));
+    if (propertyId) {
+      formData.append('property_id', String(propertyId));
+    }
     const res = await fetchWithTimeout(`${API_BASE}/reports/preview`, {
       method: 'POST',
       body: formData,
@@ -172,6 +175,7 @@ export const api = {
   async commitReports(payload: {
     files: Array<{
       temp_file_id: string;
+      property_id?: number;
       original_filename?: string;
       report_date: string;
       report_run_datetime?: string;
@@ -187,8 +191,9 @@ export const api = {
     return handleResponse(res);
   },
 
-  async getReports(): Promise<ReportItem[]> {
-    const res = await fetchWithTimeout(`${API_BASE}/reports`);
+  async getReports(propertyId?: number): Promise<ReportItem[]> {
+    const url = propertyId ? `${API_BASE}/reports?property_id=${propertyId}` : `${API_BASE}/reports`;
+    const res = await fetchWithTimeout(url);
     return handleResponse<ReportItem[]>(res);
   },
 
@@ -229,7 +234,14 @@ export const api = {
     return handleResponse<GuestMonitoringResponse>(res);
   },
 
-  getGuestExportUrl(params: { mode?: string; verification_status?: string; search?: string; property_id?: number }): string {
+  getGuestExportUrl(params: {
+    mode?: string;
+    verification_status?: string;
+    search?: string;
+    room?: string;
+    min_duration?: number;
+    property_id?: number;
+  }): string {
     const searchParams = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => {
       if (v !== undefined && v !== null && v !== '') searchParams.append(k, String(v));
@@ -239,7 +251,53 @@ export const api = {
     return `${API_BASE}/guests/export?${searchParams.toString()}`;
   },
 
-  getGuestExportPdfUrl(params?: { search?: string; min_nights?: number; property_id?: number }): string {
+  async downloadGuestExportCsv(params: {
+    mode?: string;
+    verification_status?: string;
+    search?: string;
+    room?: string;
+    min_duration?: number;
+    property_id?: number;
+  }): Promise<void> {
+    const searchParams = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') searchParams.append(k, String(v));
+    });
+    const token = getStoredToken();
+    if (token) searchParams.append('token', token);
+
+    const res = await fetchWithTimeout(`${API_BASE}/guests/export?${searchParams.toString()}`);
+    if (!res.ok) {
+      throw new Error(`Failed to download CSV export (${res.status}: ${res.statusText})`);
+    }
+    const blob = await res.blob();
+    const disposition = res.headers.get('content-disposition');
+    let filename = params.mode === 'continuous_stay_90'
+      ? 'staytrack_90plus_days_tax_exempt.csv'
+      : params.mode === 'continuous_stay_30_89'
+      ? 'staytrack_30to89_days_tax_exempt.csv'
+      : 'staytrack_30_and_90_continuous_tax_exempt.csv';
+    if (disposition && disposition.includes('filename=')) {
+      const match = disposition.match(/filename=["']?([^"';]+)["']?/);
+      if (match && match[1]) filename = match[1];
+    }
+    const downloadUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(downloadUrl);
+  },
+
+  getGuestExportPdfUrl(params?: {
+    mode?: string;
+    search?: string;
+    room?: string;
+    min_nights?: number;
+    property_id?: number;
+  }): string {
     const searchParams = new URLSearchParams();
     if (params) {
       Object.entries(params).forEach(([k, v]) => {
@@ -291,6 +349,7 @@ export const api = {
     search?: string;
     report_date?: string;
     room?: string;
+    property_id?: number;
     page?: number;
     page_size?: number;
     sort_by?: string;
@@ -306,10 +365,10 @@ export const api = {
     return handleResponse(res);
   },
 
-  getAllRecordsExportUrl(params: { search?: string; report_date?: string; room?: string }): string {
+  getAllRecordsExportUrl(params: { search?: string; report_date?: string; room?: string; property_id?: number }): string {
     const searchParams = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => {
-      if (v) searchParams.append(k, v);
+      if (v !== undefined && v !== null && v !== '') searchParams.append(k, String(v));
     });
     const token = getStoredToken();
     if (token) searchParams.append('token', token);
@@ -317,8 +376,9 @@ export const api = {
   },
 
   // Review Queue
-  async getReviewQueue(): Promise<ReviewQueueData> {
-    const res = await fetchWithTimeout(`${API_BASE}/review/queue`);
+  async getReviewQueue(property_id?: number): Promise<ReviewQueueData> {
+    const url = property_id ? `${API_BASE}/review/queue?property_id=${property_id}` : `${API_BASE}/review/queue`;
+    const res = await fetchWithTimeout(url);
     return handleResponse<ReviewQueueData>(res);
   },
 

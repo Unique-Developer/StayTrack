@@ -3,7 +3,7 @@ import uuid
 import datetime
 from pathlib import Path
 from typing import List, Optional, Dict
-from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, status
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, status, Query
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from app.db.session import get_db
@@ -39,6 +39,7 @@ TEMP_STAGING_DIR.mkdir(parents=True, exist_ok=True)
 @router.post("/preview", response_model=List[ReportPreviewFile])
 async def preview_reports(
     files: List[UploadFile] = File(...),
+    property_id: Optional[int] = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -47,8 +48,11 @@ async def preview_reports(
     Accepts daily PDF reports, extracts text/table data, checks file hashes and existing dates,
     and returns an editable preview before committing to persistent storage.
     """
-    prop = db.query(Property).first()
-    property_id = prop.id if prop else 1
+    target_property_id = property_id
+    if not target_property_id:
+        prop = db.query(Property).first()
+        target_property_id = prop.id if prop else 1
+    property_id = target_property_id
     results = []
 
     for file in files:
@@ -245,11 +249,15 @@ async def commit_reports(
 
 @router.get("", response_model=List[ReportResponse])
 def get_reports(
+    property_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    query = db.query(UploadedReport)
+    if property_id:
+        query = query.filter(UploadedReport.property_id == property_id)
     reports = (
-        db.query(UploadedReport)
+        query
         .order_by(UploadedReport.report_date.desc(), UploadedReport.created_at.desc())
         .all()
     )

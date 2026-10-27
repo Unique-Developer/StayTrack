@@ -105,7 +105,7 @@ export interface GuestAssessmentItem {
   id: number;
   guest_identity_id: number;
   guest_name: string;
-  mode: 'continuous_stay' | 'repeated_appearance' | 'continuous_stay_90';
+  mode: 'continuous_stay' | 'repeated_appearance' | 'continuous_stay_90' | 'continuous_stay_30_89';
   stay_duration_days: number;
   reporting_dates_count: number;
   first_date?: string;
@@ -138,6 +138,7 @@ export interface GuestMonitoringResponse {
   page: number;
   page_size: number;
   items: GuestAssessmentItem[];
+  counts?: Record<string, number>;
 }
 
 export interface GuestRecordItem {

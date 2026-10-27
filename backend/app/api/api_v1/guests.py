@@ -134,12 +134,12 @@ def get_guest_monitoring(
         db=db,
         property_id=target_property_id,
         min_nights=effective_min,
-        search=search_str
+        search=search_str,
+        room=room_str
     )
 
-    if room_str:
-        r_upper = room_str.strip().upper()
-        stays = [s for s in stays if any(r_upper in rm.upper() for rm in s["rooms_list"])]
+    if mode_str == "continuous_stay_30_89":
+        stays = [s for s in stays if 30 <= s["total_nights"] < 90]
 
     # Sorting
     if sort_by_str == "guest_name":
@@ -190,7 +190,8 @@ def get_guest_monitoring(
         total=total,
         page=page_val,
         page_size=page_size_val,
-        items=items
+        items=items,
+        counts=counts
     )
 
 
@@ -199,32 +200,48 @@ def export_guests(
     mode: Optional[str] = Query(None),
     verification_status: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
+    room: Optional[str] = Query(None),
+    min_duration: Optional[int] = Query(None),
     property_id: Optional[int] = Query(None),
+    sort_by: str = Query("stay_duration_days"),
+    sort_order: str = Query("desc"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
     Export guests to CSV format.
-    For Continuous Stays / Mode A: exports the exact matching dataset as the PDF report,
-    including room numbers, original check-in dates, 30+ county tax dates, 90+ state tax dates,
-    tax status, and fixed rates.
+    For Continuous Stays / Mode A (30+ and 90+ days): exports the exact matching dataset as the PDF report
+    and Guest Monitoring table, including room numbers, original check-in dates, 30+ county tax dates,
+    90+ state tax dates, tax status, and fixed rates.
     """
     prop = None
-    if property_id:
+    if property_id and isinstance(property_id, int):
         prop = db.query(Property).filter(Property.id == property_id).first()
     if not prop:
         prop = db.query(Property).first()
     target_property_id = prop.id if prop else 1
 
-    # Continuous Stay CSV export matching the PDF report exactly
-    if mode in ("continuous_stay", "continuous_stay_90"):
-        export_min_nights = 90 if mode == "continuous_stay_90" else 1
+    # Continuous Stay CSV export matching the PDF report and monitoring table exactly
+    if mode in ("continuous_stay", "continuous_stay_90", "continuous_stay_30_89"):
+        export_min_nights = min_duration if isinstance(min_duration, int) else (90 if mode == "continuous_stay_90" else 30)
         prop_name, stays, counts = get_continuous_stays(
             db=db,
             property_id=target_property_id,
             min_nights=export_min_nights,
-            search=search
+            search=search,
+            room=room
         )
+
+        if mode == "continuous_stay_30_89":
+            stays = [s for s in stays if 30 <= s["total_nights"] < 90]
+
+        # Apply exact matching sorting
+        if sort_by == "guest_name":
+            stays.sort(key=lambda s: s["guest_name"], reverse=(sort_order.lower() == "desc"))
+        elif sort_by == "first_date":
+            stays.sort(key=lambda s: s["check_in"], reverse=(sort_order.lower() == "desc"))
+        else:
+            stays.sort(key=lambda s: (-s["total_nights"], s["check_in"]) if sort_order.lower() != "asc" else (s["total_nights"], s["check_in"]))
 
         output = io.StringIO()
         writer = csv.writer(output)
@@ -238,8 +255,6 @@ def export_guests(
             "County Tax Exempt Start Date (30+ Days)",
             "State Tax Exempt Date (90+ Days)",
             "Tax Exemption Status",
-            "Fix Rate",
-            "Renewals / Extensions Count",
             "Confirmation Numbers"
         ])
 
@@ -250,7 +265,6 @@ def export_guests(
             cout_str = s["check_out"].isoformat() if s.get("check_out") else ""
             county_str = s["county_exempt_date"].isoformat() if s.get("county_exempt_date") else ""
             state_str = s["state_exempt_date"].isoformat() if s.get("state_exempt_date") else ""
-            rate_val = f"{s['fixed_rate']:.2f}" if s.get("fixed_rate") is not None else ""
 
             writer.writerow([
                 s["guest_name"],
@@ -262,18 +276,21 @@ def export_guests(
                 county_str,
                 state_str,
                 s.get("tax_status", ""),
-                rate_val,
-                s.get("ext_count", 0),
                 confs_str
             ])
 
         today_str = get_ny_now().date().isoformat()
         clean_pname = prop.name.lower().replace(" ", "_").replace("-", "") if prop else "property"
-        csv_filename = f"staytrack_{clean_pname}_90plus_days_tax_exempt_{today_str}.csv" if mode == "continuous_stay_90" else f"staytrack_{clean_pname}_tax_exempt_report_{today_str}.csv"
+        if mode == "continuous_stay_90":
+            csv_filename = f"staytrack_{clean_pname}_90plus_days_tax_exempt_{today_str}.csv"
+        elif mode == "continuous_stay_30_89":
+            csv_filename = f"staytrack_{clean_pname}_30to89_days_tax_exempt_{today_str}.csv"
+        else:
+            csv_filename = f"staytrack_{clean_pname}_30_and_90_tax_exempt_{today_str}.csv"
         return Response(
             content=output.getvalue(),
             media_type="text/csv",
-            headers={"Content-Disposition": f"attachment; filename={csv_filename}"}
+            headers={"Content-Disposition": f'attachment; filename="{csv_filename}"'}
         )
 
     # General / Repeated appearances assessment export
@@ -287,6 +304,8 @@ def export_guests(
         query = query.filter(StayAssessment.mode == mode)
     if verification_status:
         query = query.filter(StayAssessment.verification_status == verification_status)
+    if room:
+        query = query.filter(StayAssessment.room_numbers.like(f"%{room.strip()}%"))
     if search and isinstance(search, str):
         s = f"%{search.strip().upper()}%"
         query = query.filter(
@@ -334,15 +353,19 @@ def export_guests(
     return Response(
         content=output.getvalue(),
         media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=staytrack_guest_monitoring.csv"}
+        headers={"Content-Disposition": 'attachment; filename="staytrack_guest_monitoring.csv"'}
     )
 
 
 @router.get("/export-pdf")
 def export_guests_pdf(
     search: Optional[str] = Query(None, description="Filter by guest name, room, or confirmation"),
-    min_nights: int = Query(7, ge=1, description="Minimum continuous nights threshold"),
+    min_nights: Optional[int] = Query(None, ge=1, description="Minimum continuous nights threshold"),
+    mode: Optional[str] = Query(None, description="continuous_stay_90, continuous_stay, etc."),
+    room: Optional[str] = Query(None, description="Filter by room number"),
     property_id: Optional[int] = Query(None),
+    sort_by: str = Query("stay_duration_days"),
+    sort_order: str = Query("desc"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -353,7 +376,7 @@ def export_guests_pdf(
     """
     try:
         prop = None
-        if property_id:
+        if property_id and isinstance(property_id, int):
             prop = db.query(Property).filter(Property.id == property_id).first()
         if not prop:
             prop = db.query(Property).first()
@@ -361,12 +384,27 @@ def export_guests_pdf(
         pid = prop.id if prop else 1
         pname = prop.name if prop else "Motel 6"
 
+        effective_min = min_nights if isinstance(min_nights, int) else (90 if mode == "continuous_stay_90" else 30)
+
         prop_name, stays, counts = get_continuous_stays(
             db=db,
             property_id=pid,
-            min_nights=min_nights,
-            search=search
+            min_nights=effective_min,
+            search=search,
+            room=room
         )
+
+        if mode == "continuous_stay_30_89":
+            stays = [s for s in stays if 30 <= s["total_nights"] < 90]
+            counts = {"90+": 0, "30+": len(stays), "21+": 0, "7+": 0}
+
+        # Apply exact same sorting
+        if sort_by == "guest_name":
+            stays.sort(key=lambda s: s["guest_name"], reverse=(sort_order.lower() == "desc"))
+        elif sort_by == "first_date":
+            stays.sort(key=lambda s: s["check_in"], reverse=(sort_order.lower() == "desc"))
+        else:
+            stays.sort(key=lambda s: (-s["total_nights"], s["check_in"]) if sort_order.lower() != "asc" else (s["total_nights"], s["check_in"]))
 
         pdf_bytes = generate_long_stay_pdf(
             property_name=pname,
@@ -375,7 +413,13 @@ def export_guests_pdf(
         )
 
         today_str = get_ny_now().date().isoformat()
-        filename = f"staytrack_long_stay_monitoring_{today_str}.pdf"
+        clean_pname = prop.name.lower().replace(" ", "_").replace("-", "") if prop else "property"
+        if mode == "continuous_stay_90":
+            filename = f"staytrack_{clean_pname}_90plus_days_tax_exempt_{today_str}.pdf"
+        elif mode == "continuous_stay_30_89":
+            filename = f"staytrack_{clean_pname}_30to89_days_tax_exempt_{today_str}.pdf"
+        else:
+            filename = f"staytrack_{clean_pname}_30_and_90_continuous_tax_exempt_{today_str}.pdf"
 
         return Response(
             content=pdf_bytes,

@@ -7,15 +7,15 @@ import { formatNYDateTime } from '../utils/dateUtils';
 interface GuestDetailModalProps {
   identityId: number | null;
   onClose: () => void;
+  onUpdated?: () => void;
 }
 
-export const GuestDetailModal: React.FC<GuestDetailModalProps> = ({ identityId, onClose }) => {
+export const GuestDetailModal: React.FC<GuestDetailModalProps> = ({ identityId, onClose, onUpdated }) => {
   const [detail, setDetail] = useState<GuestDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [editCheckIn, setEditCheckIn] = useState('');
-  const [editRate, setEditRate] = useState<string>('');
   const [editNotes, setEditNotes] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -29,7 +29,6 @@ export const GuestDetailModal: React.FC<GuestDetailModalProps> = ({ identityId, 
       .then(res => {
         setDetail(res);
         setEditCheckIn(res.original_check_in_date || '');
-        setEditRate(res.fixed_rate !== undefined && res.fixed_rate !== null ? String(res.fixed_rate) : '');
         setEditNotes(res.notes || '');
       })
       .catch(err => setError(err.message))
@@ -41,21 +40,21 @@ export const GuestDetailModal: React.FC<GuestDetailModalProps> = ({ identityId, 
     setIsSaving(true);
     setSaveSuccess(false);
     try {
-      const rateVal = editRate.trim() ? parseFloat(editRate.trim()) : null;
       const res = await api.updateGuestIdentity(detail.identity_id, {
         original_check_in_date: editCheckIn.trim() || undefined,
-        fixed_rate: rateVal,
         notes: editNotes.trim() || undefined,
       });
       setDetail(prev => prev ? {
         ...prev,
         original_check_in_date: res.original_check_in_date,
-        fixed_rate: res.fixed_rate,
         notes: res.notes,
         county_exempt_date: res.county_exempt_date,
         state_exempt_date: res.state_exempt_date,
       } : null);
       setSaveSuccess(true);
+      if (onUpdated) {
+        onUpdated();
+      }
       setTimeout(() => setSaveSuccess(false), 4000);
     } catch (err: any) {
       alert(err.message || 'Failed to update guest details');
@@ -132,7 +131,7 @@ export const GuestDetailModal: React.FC<GuestDetailModalProps> = ({ identityId, 
                   )}
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
                   <div>
                     <label className="block text-slate-400 font-semibold mb-1">
                       Original Check-In Date
@@ -143,22 +142,7 @@ export const GuestDetailModal: React.FC<GuestDetailModalProps> = ({ identityId, 
                       onChange={(e) => setEditCheckIn(e.target.value)}
                       className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white font-mono focus:border-amber-400 focus:outline-none"
                     />
-                    <p className="text-[10px] text-slate-500 mt-1">Ground-truth first arrival date</p>
-                  </div>
-
-                  <div>
-                    <label className="block text-slate-400 font-semibold mb-1">
-                      Fixed Rate ($ / Night)
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder="e.g. 65.00"
-                      value={editRate}
-                      onChange={(e) => setEditRate(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white font-mono focus:border-amber-400 focus:outline-none"
-                    />
-                    <p className="text-[10px] text-slate-500 mt-1">Contracted or negotiated rate</p>
+                    <p className="text-[10px] text-slate-500 mt-1">Ground-truth first arrival date for continuous residency</p>
                   </div>
 
                   <div>
@@ -167,12 +151,12 @@ export const GuestDetailModal: React.FC<GuestDetailModalProps> = ({ identityId, 
                     </label>
                     <input
                       type="text"
-                      placeholder="e.g. Special Rate: 55.00 plus tax"
+                      placeholder="e.g. Verified guest history, tax exempt certificate on file"
                       value={editNotes}
                       onChange={(e) => setEditNotes(e.target.value)}
                       className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white focus:border-amber-400 focus:outline-none"
                     />
-                    <p className="text-[10px] text-slate-500 mt-1">Special agreements & remarks</p>
+                    <p className="text-[10px] text-slate-500 mt-1">Special agreements & audit remarks</p>
                   </div>
                 </div>
 

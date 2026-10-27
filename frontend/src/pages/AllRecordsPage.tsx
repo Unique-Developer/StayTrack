@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { FileText, Search, Download, ChevronRight, Filter, Calendar } from 'lucide-react';
+import { FileText, Search, Download, ChevronRight, Filter, Calendar, Loader2 } from 'lucide-react';
 import { api } from '../services/api';
 import { GuestRecordItem } from '../types';
 import { GuestDetailModal } from '../components/GuestDetailModal';
+import { useProperty } from '../context/PropertyContext';
 
 export const AllRecordsPage: React.FC = () => {
+  const { currentPropertyId, currentProperty } = useProperty();
   const [records, setRecords] = useState<GuestRecordItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -17,6 +19,7 @@ export const AllRecordsPage: React.FC = () => {
     api.getAllRecords({
       search: search || undefined,
       report_date: reportDate || undefined,
+      property_id: currentPropertyId,
       page: 1,
       page_size: 200,
     })
@@ -30,7 +33,7 @@ export const AllRecordsPage: React.FC = () => {
 
   useEffect(() => {
     loadRecords();
-  }, [reportDate]);
+  }, [reportDate, currentPropertyId]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,6 +44,7 @@ export const AllRecordsPage: React.FC = () => {
     const url = api.getAllRecordsExportUrl({
       search: search || undefined,
       report_date: reportDate || undefined,
+      property_id: currentPropertyId,
     });
     window.open(url, '_blank');
   };
@@ -53,18 +57,22 @@ export const AllRecordsPage: React.FC = () => {
           <h1 className="text-2xl font-black text-white tracking-tight flex items-center gap-2.5">
             <FileText className="w-6 h-6 text-amber-400" /> All Guest Records ({total})
           </h1>
-          <p className="text-xs text-slate-400 mt-1">
-            Every departure record extracted and normalized from historical PDF reports.
+          <p className="text-xs text-slate-400 mt-1 flex items-center gap-2">
+            <span>Departure records for</span>
+            <span className="font-bold text-amber-400">{currentProperty?.name} (#{currentProperty?.property_code})</span>
+            {loading && <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />}
           </p>
         </div>
 
-        <button
-          onClick={handleExport}
-          className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition-all shadow-sm"
-        >
-          <Download className="w-4 h-4 text-amber-400" />
-          <span>Export All CSV</span>
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleExport}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition-all cursor-pointer shadow-sm hover:border-amber-500/40"
+          >
+            <Download className="w-4 h-4 text-amber-400" />
+            <span>Export CSV</span>
+          </button>
+        </div>
       </div>
 
       {/* Filter Bar */}
@@ -187,7 +195,11 @@ export const AllRecordsPage: React.FC = () => {
         </div>
       </div>
 
-      <GuestDetailModal identityId={selectedGuestId} onClose={() => setSelectedGuestId(null)} />
+      <GuestDetailModal
+        identityId={selectedGuestId}
+        onClose={() => setSelectedGuestId(null)}
+        onUpdated={loadRecords}
+      />
     </div>
   );
 };
