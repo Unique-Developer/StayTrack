@@ -257,12 +257,15 @@ def test_data_consistency_between_tab_csv_and_pdf(client, db_session):
     assert len(items_30_89) == 1
     assert items_30_89[0]["guest_name"] == "GUEST FORTYTWO"
     assert items_30_89[0]["stay_duration_days"] == 42
+    assert items_30_89[0]["tier_category"] == "30+ Days"
 
     csv_30_89 = client.get(f"/api/v1/guests/export?mode=continuous_stay_30_89&property_id={prop.id}")
     assert csv_30_89.status_code == 200
-    rows_30_89 = list(csv.reader(io.StringIO(csv_30_89.text)))
+    rows_30_89 = list(csv.reader(io.StringIO(csv_30_89.text.lstrip('\ufeff'))))
     assert len(rows_30_89) == 2
     assert rows_30_89[1][0] == "GUEST FORTYTWO"
+    assert "30+ Days" in rows_30_89[1]
+    assert "30–89 Nights" not in rows_30_89[1]
 
     pdf_30_89 = client.get(f"/api/v1/guests/export-pdf?mode=continuous_stay_30_89&property_id={prop.id}")
     assert pdf_30_89.status_code == 200

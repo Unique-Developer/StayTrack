@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, UploadCloud, RefreshCw, AlertCircle, LogOut, Clock, User as UserIcon, Menu } from 'lucide-react';
 import { DashboardSummary, User } from '../types';
-import { getCurrentNYTimeDisplay } from '../utils/dateUtils';
+import { getCurrentNYTimeDisplay, formatMMDDYYYY } from '../utils/dateUtils';
 import { MotelSwitcher } from './MotelSwitcher';
 
 interface HeaderProps {
@@ -67,7 +67,7 @@ export const Header: React.FC<HeaderProps> = ({
             <Calendar className="w-3.5 h-3.5 text-amber-400 shrink-0" />
             <span className="text-slate-400 font-medium">30-Day Window:</span>
             <span className="font-semibold text-slate-200">
-              {summary.active_window_start} <span className="text-slate-500">to</span> {summary.active_window_end}
+              {formatMMDDYYYY(summary.active_window_start)} <span className="text-slate-500">to</span> {formatMMDDYYYY(summary.active_window_end)}
             </span>
           </div>
         )}

@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { X, Calendar, User, Home, Hash, Clock, ShieldCheck, CheckCircle2, AlertTriangle, FileText, ArrowRight } from 'lucide-react';
 import { api } from '../services/api';
 import { GuestDetail } from '../types';
-import { formatNYDateTime } from '../utils/dateUtils';
+import { formatNYDateTime, formatMMDDYYYY } from '../utils/dateUtils';
+import { DateInput } from './DateInput';
 
 interface GuestDetailModalProps {
   identityId: number | null;
@@ -136,10 +137,10 @@ export const GuestDetailModal: React.FC<GuestDetailModalProps> = ({ identityId, 
                     <label className="block text-slate-400 font-semibold mb-1">
                       Original Check-In Date
                     </label>
-                    <input
-                      type="date"
+                    <DateInput
                       value={editCheckIn}
-                      onChange={(e) => setEditCheckIn(e.target.value)}
+                      onChange={(val) => setEditCheckIn(val)}
+                      placeholder="mm-dd-yyyy"
                       className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white font-mono focus:border-amber-400 focus:outline-none"
                     />
                     <p className="text-[10px] text-slate-500 mt-1">Ground-truth first arrival date for continuous residency</p>
@@ -165,14 +166,14 @@ export const GuestDetailModal: React.FC<GuestDetailModalProps> = ({ identityId, 
                   <div>
                     <span className="text-slate-400">County Exempt (30+ Days):</span>
                     <div className="font-bold text-amber-300 font-mono mt-0.5">
-                      {detail.county_exempt_date || 'N/A (Set Check-In)'}
+                      {detail.county_exempt_date ? formatMMDDYYYY(detail.county_exempt_date) : 'N/A (Set Check-In)'}
                     </div>
                   </div>
 
                   <div>
                     <span className="text-slate-400">State Exempt (90+ Days):</span>
                     <div className="font-bold text-emerald-400 font-mono mt-0.5">
-                      {detail.state_exempt_date || 'N/A (Set Check-In)'}
+                      {detail.state_exempt_date ? formatMMDDYYYY(detail.state_exempt_date) : 'N/A (Set Check-In)'}
                     </div>
                   </div>
 
@@ -226,7 +227,7 @@ export const GuestDetailModal: React.FC<GuestDetailModalProps> = ({ identityId, 
                           </div>
                           <div>
                             <span className="text-slate-400">Date Span: </span>
-                            <span className="text-slate-200">{a.first_date} to {a.last_date}</span>
+                            <span className="text-slate-200">{formatMMDDYYYY(a.first_date)} to {formatMMDDYYYY(a.last_date)}</span>
                           </div>
                           <div>
                             <span className="text-slate-400">Rooms: </span>
@@ -263,7 +264,7 @@ export const GuestDetailModal: React.FC<GuestDetailModalProps> = ({ identityId, 
                         <div className="space-y-1">
                           <div className="flex flex-wrap items-center gap-2">
                             <span className="text-xs font-semibold px-2 py-0.5 rounded bg-slate-900 text-slate-200 border border-slate-700">
-                              Report: {item.report_date}
+                              Report: {formatMMDDYYYY(item.report_date)}
                             </span>
                             <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20">
                               Room {item.room_number || 'N/A'}
@@ -278,13 +279,13 @@ export const GuestDetailModal: React.FC<GuestDetailModalProps> = ({ identityId, 
 
                           <div className="text-xs text-slate-300 flex flex-wrap items-center gap-x-4 gap-y-1 pt-1">
                             <span>
-                              <span className="text-slate-400">Check-in:</span> {item.check_in_date || 'N/A'}
+                              <span className="text-slate-400">Check-in:</span> {formatMMDDYYYY(item.check_in_date)}
                             </span>
                             <span>
                               <span className="text-slate-400">Nights:</span> <strong className="text-white">{item.number_of_nights ?? 'N/A'}</strong>
                             </span>
                             <span>
-                              <span className="text-slate-400">Calc Departure:</span> {item.calculated_departure_date || 'N/A'}
+                              <span className="text-slate-400">Calc Departure:</span> {formatMMDDYYYY(item.calculated_departure_date)}
                             </span>
                             {item.actual_departed_time && (
                               <span>

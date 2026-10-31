@@ -67,13 +67,70 @@ export const formatNYDateTime = (
 };
 
 /**
- * Formats a date into a New York date string.
- * e.g. "Oct 16, 2026"
+ * Formats any date input (YYYY-MM-DD, ISO string, Date, or timestamp) into standard MM-DD-YYYY format.
+ * e.g. "2026-10-26" -> "10-26-2026"
+ * e.g. "2026-06-05" -> "06-05-2026"
+ */
+export const formatMMDDYYYY = (input?: string | number | Date | null): string => {
+  if (input === null || input === undefined || input === '') {
+    return '—';
+  }
+
+  // If already in YYYY-MM-DD format (date-only)
+  if (typeof input === 'string') {
+    const trimmed = input.trim();
+    // Check if it's already in MM-DD-YYYY or MM/DD/YYYY format
+    if (/^\d{2}[-/]\d{2}[-/]\d{4}$/.test(trimmed)) {
+      return trimmed.replace(/\//g, '-');
+    }
+    const ymdMatch = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/.exec(trimmed);
+    if (ymdMatch) {
+      const year = ymdMatch[1];
+      const month = ymdMatch[2].padStart(2, '0');
+      const day = ymdMatch[3].padStart(2, '0');
+      return `${month}-${day}-${year}`;
+    }
+  }
+
+  const date = parseToDate(input);
+  if (!date) return typeof input === 'string' ? input : '—';
+
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: NY_TIMEZONE,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(date);
+
+    const month = parts.find((p) => p.type === 'month')?.value;
+    const day = parts.find((p) => p.type === 'day')?.value;
+    const year = parts.find((p) => p.type === 'year')?.value;
+
+    if (month && day && year) {
+      return `${month}-${day}-${year}`;
+    }
+  } catch (e) {
+    // fallback
+  }
+
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  const y = date.getFullYear();
+  return `${m}-${d}-${y}`;
+};
+
+/**
+ * Formats a date into a New York date string formatted as MM-DD-YYYY.
+ * e.g. "10-16-2026"
  */
 export const formatNYDate = (
   input?: string | number | Date | null,
   options?: Intl.DateTimeFormatOptions
 ): string => {
+  if (!options) {
+    return formatMMDDYYYY(input);
+  }
   const date = parseToDate(input);
   if (!date) return input ? String(input) : '—';
 
@@ -81,12 +138,12 @@ export const formatNYDate = (
     return new Intl.DateTimeFormat('en-US', {
       timeZone: NY_TIMEZONE,
       year: 'numeric',
-      month: 'short',
-      day: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
       ...options,
     }).format(date);
   } catch (e) {
-    return date.toLocaleDateString();
+    return formatMMDDYYYY(date);
   }
 };
 

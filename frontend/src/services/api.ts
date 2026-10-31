@@ -203,6 +203,41 @@ export const api = {
     return `${API_BASE}/reports/${reportId}/download${tokenQuery}`;
   },
 
+  async downloadReportExcel(reportId: number, originalFilename?: string): Promise<void> {
+    const res = await fetchWithTimeout(`${API_BASE}/reports/${reportId}/download`);
+    if (!res.ok) {
+      let errorMsg = `Failed to download Excel report (${res.status})`;
+      try {
+        const err = await res.json();
+        errorMsg = err.detail || errorMsg;
+      } catch {
+        // ignore
+      }
+      throw new Error(errorMsg);
+    }
+    const blob = await res.blob();
+    const disposition = res.headers.get('content-disposition');
+    let filename = '';
+    if (disposition && disposition.includes('filename=')) {
+      const match = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+      if (match && match[1]) {
+        filename = match[1].replace(/['"]/g, '');
+      }
+    }
+    if (!filename) {
+      const stem = originalFilename ? originalFilename.replace(/\.pdf$/i, '') : `report_${reportId}`;
+      filename = `${stem}_data.xlsx`;
+    }
+    const downloadUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(downloadUrl);
+  },
+
   async deleteReport(reportId: number): Promise<{ success: boolean; message: string }> {
     const res = await fetchWithTimeout(`${API_BASE}/reports/${reportId}`, {
       method: 'DELETE',
@@ -223,6 +258,8 @@ export const api = {
     page_size?: number;
     sort_by?: string;
     sort_order?: string;
+    as_of_date?: string;
+    all_time?: boolean;
   }): Promise<GuestMonitoringResponse> {
     const searchParams = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => {
@@ -241,6 +278,9 @@ export const api = {
     room?: string;
     min_duration?: number;
     property_id?: number;
+    as_of_date?: string;
+    all_time?: boolean;
+    columns?: string;
   }): string {
     const searchParams = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => {
@@ -258,6 +298,9 @@ export const api = {
     room?: string;
     min_duration?: number;
     property_id?: number;
+    as_of_date?: string;
+    all_time?: boolean;
+    columns?: string;
   }): Promise<void> {
     const searchParams = new URLSearchParams();
     Object.entries(params).forEach(([k, v]) => {
@@ -297,6 +340,8 @@ export const api = {
     room?: string;
     min_nights?: number;
     property_id?: number;
+    as_of_date?: string;
+    all_time?: boolean;
   }): string {
     const searchParams = new URLSearchParams();
     if (params) {

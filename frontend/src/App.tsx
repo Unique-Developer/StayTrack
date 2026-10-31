@@ -50,6 +50,16 @@ function MainApp() {
     }
   }, [isAuthenticated, currentPropertyId]);
 
+  useEffect(() => {
+    const handleDataChanged = () => {
+      if (isAuthenticated) {
+        loadDashboardData();
+      }
+    };
+    window.addEventListener('staytrack:data_changed', handleDataChanged);
+    return () => window.removeEventListener('staytrack:data_changed', handleDataChanged);
+  }, [isAuthenticated, currentPropertyId]);
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 text-slate-100">

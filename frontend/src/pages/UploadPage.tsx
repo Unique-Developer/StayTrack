@@ -13,7 +13,8 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import { ReportPreviewFile, PreviewRecord } from '../types';
-import { getTodayNYDateString } from '../utils/dateUtils';
+import { getTodayNYDateString, formatMMDDYYYY } from '../utils/dateUtils';
+import { DateInput } from '../components/DateInput';
 import { useProperty } from '../context/PropertyContext';
 
 interface UploadPageProps {
@@ -244,11 +245,11 @@ export const UploadPage: React.FC<UploadPageProps> = ({ onImportComplete }) => {
                   <div className="flex items-center gap-2 bg-slate-800/80 border border-slate-700 px-3 py-1.5 rounded-lg">
                     <Calendar className="w-3.5 h-3.5 text-amber-400" />
                     <span className="text-xs text-slate-400">Report Date:</span>
-                    <input
-                      type="date"
+                    <DateInput
                       value={preview.report_date || ''}
-                      onChange={(e) => handleDateChange(pIdx, e.target.value)}
-                      className="bg-slate-900 text-white font-mono text-xs px-2 py-0.5 rounded border border-slate-700 focus:outline-none focus:border-amber-400"
+                      onChange={(val) => handleDateChange(pIdx, val)}
+                      placeholder="mm-dd-yyyy"
+                      className="bg-slate-900 text-white font-mono text-xs px-2 py-0.5 rounded border border-slate-700 focus:outline-none focus:border-amber-400 w-28"
                     />
                   </div>
 
@@ -277,7 +278,7 @@ export const UploadPage: React.FC<UploadPageProps> = ({ onImportComplete }) => {
                 <div className="p-3 bg-blue-500/10 border-b border-blue-500/30 text-blue-300 text-xs flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4 text-blue-400 shrink-0" />
                   <span>
-                    <strong>Existing Date Coverage:</strong> A report for date {preview.report_date} already exists.
+                    <strong>Existing Date Coverage:</strong> A report for date {formatMMDDYYYY(preview.report_date)} already exists.
                     Confirming will replace the previous report and retain an audit trail.
                   </span>
                 </div>
@@ -325,9 +326,9 @@ export const UploadPage: React.FC<UploadPageProps> = ({ onImportComplete }) => {
                             className="bg-transparent border border-transparent hover:border-slate-700 focus:border-amber-400 rounded px-1.5 py-0.5 font-semibold text-slate-100 w-44 focus:outline-none"
                           />
                         </td>
-                        <td className="py-2 px-3 font-mono text-slate-300">{rec.check_in_date || 'N/A'}</td>
+                        <td className="py-2 px-3 font-mono text-slate-300">{formatMMDDYYYY(rec.check_in_date)}</td>
                         <td className="py-2 px-3 font-mono font-bold text-white">{rec.number_of_nights ?? 'N/A'}</td>
-                        <td className="py-2 px-3 font-mono text-slate-300">{rec.calculated_departure_date || 'N/A'}</td>
+                        <td className="py-2 px-3 font-mono text-slate-300">{formatMMDDYYYY(rec.calculated_departure_date)}</td>
                         <td className="py-2 px-3">
                           <span className="px-1.5 py-0.5 rounded text-[10px] bg-slate-800 text-slate-300 font-medium">
                             {rec.status}

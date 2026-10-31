@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { History, Download, Trash2, Calendar, FileText, CheckCircle2, RefreshCw, Clock, Loader2 } from 'lucide-react';
+import { History, Trash2, FileText, RefreshCw, Loader2, FileSpreadsheet } from 'lucide-react';
 import { api } from '../services/api';
 import { ReportItem } from '../types';
-import { formatNYDateTime } from '../utils/dateUtils';
+import { formatNYDateTime, formatMMDDYYYY } from '../utils/dateUtils';
 import { useProperty } from '../context/PropertyContext';
 
 export const ReportHistoryPage: React.FC = () => {
@@ -10,6 +10,7 @@ export const ReportHistoryPage: React.FC = () => {
   const [reports, setReports] = useState<ReportItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [downloadingId, setDownloadingId] = useState<number | null>(null);
 
   const loadReports = () => {
     setLoading(true);
@@ -23,14 +24,26 @@ export const ReportHistoryPage: React.FC = () => {
     loadReports();
   }, [currentPropertyId]);
 
+  const handleDownloadExcel = async (report: ReportItem) => {
+    setDownloadingId(report.id);
+    try {
+      await api.downloadReportExcel(report.id, report.original_filename);
+    } catch (err: any) {
+      alert(err.message || 'Failed to download report Excel file');
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
   const handleDelete = async (id: number) => {
-    if (!window.confirm('Are you sure you want to delete this report? This will remove its guest records and recalculate the rolling window.')) {
+    if (!window.confirm('Are you sure you want to delete this report? This will remove all its guest records and recalculate stay analytics and rolling windows.')) {
       return;
     }
     setDeletingId(id);
     try {
       await api.deleteReport(id);
       loadReports();
+      window.dispatchEvent(new CustomEvent('staytrack:data_changed'));
     } catch (err: any) {
       alert(err.message || 'Failed to delete report');
     } finally {
@@ -46,7 +59,7 @@ export const ReportHistoryPage: React.FC = () => {
             <History className="w-6 h-6 text-amber-400" /> Report History ({reports.length})
           </h1>
           <p className="text-xs text-slate-400 mt-1 flex items-center gap-2">
-            <span>Historical archive of uploaded PDF reports for</span>
+            <span>Historical archive of imported report data for</span>
             <span className="font-bold text-amber-400">{currentProperty?.name} (#{currentProperty?.property_code})</span>
             {loading && <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />}
           </p>
@@ -68,10 +81,10 @@ export const ReportHistoryPage: React.FC = () => {
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-950/80 text-slate-400 font-semibold uppercase tracking-wider border-b border-slate-800">
               <tr>
-                <th className="py-3 px-4">Filename</th>
+                <th className="py-3 px-4">Report / Source File</th>
                 <th className="py-3 px-4">Reporting Date & PMS Run</th>
                 <th className="py-3 px-4">Property</th>
-                <th className="py-3 px-4">Records</th>
+                <th className="py-3 px-4">Extracted Records</th>
                 <th className="py-3 px-4">File Size</th>
                 <th className="py-3 px-4">Status</th>
                 <th className="py-3 px-4">Imported At (NY Time)</th>
@@ -93,7 +106,7 @@ export const ReportHistoryPage: React.FC = () => {
                       <span>{r.original_filename}</span>
                     </td>
                     <td className="py-3 px-4">
-                      <div className="font-mono text-amber-300 font-semibold">{r.report_date}</div>
+                      <div className="font-mono text-amber-300 font-semibold">{formatMMDDYYYY(r.report_date)}</div>
                       {r.report_run_datetime && (
                         <div className="text-[11px] text-slate-400 font-mono mt-0.5 flex items-center gap-1" title="PMS Report Run Date & Time (Local Eastern Time)">
                           <span className="text-slate-500 font-normal">PMS:</span>
@@ -102,7 +115,7 @@ export const ReportHistoryPage: React.FC = () => {
                       )}
                     </td>
                     <td className="py-3 px-4 text-slate-300">{r.property_name}</td>
-                    <td className="py-3 px-4 font-mono text-white font-bold">{r.valid_rows_count} valid</td>
+                    <td className="py-3 px-4 font-mono text-white font-bold">{r.valid_rows_count} valid records</td>
                     <td className="py-3 px-4 font-mono text-slate-400">{(r.file_size_bytes / 1024).toFixed(1)} KB</td>
                     <td className="py-3 px-4">
                       <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
@@ -114,21 +127,29 @@ export const ReportHistoryPage: React.FC = () => {
                     </td>
                     <td className="py-3 px-4 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <a
-                          href={api.getDownloadUrl(r.id)}
-                          download={r.original_filename}
-                          className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-amber-400 transition-colors"
-                          title="Download original PDF"
+                        <button
+                          onClick={() => handleDownloadExcel(r)}
+                          disabled={downloadingId === r.id}
+                          className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-emerald-400 transition-colors cursor-pointer flex items-center gap-1"
+                          title="Download Excel Report Data (.xlsx)"
                         >
-                          <Download className="w-3.5 h-3.5" />
-                        </a>
+                          {downloadingId === r.id ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+                          ) : (
+                            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+                          )}
+                        </button>
                         <button
                           onClick={() => handleDelete(r.id)}
                           disabled={deletingId === r.id}
-                          className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-rose-400 transition-colors"
-                          title="Delete report"
+                          className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-rose-400 transition-colors cursor-pointer"
+                          title="Delete report and its data"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          {deletingId === r.id ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-400" />
+                          ) : (
+                            <Trash2 className="w-3.5 h-3.5" />
+                          )}
                         </button>
                       </div>
                     </td>

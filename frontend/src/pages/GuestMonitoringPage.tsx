@@ -19,12 +19,52 @@ import {
   X,
   Loader2,
   Clock,
-  DollarSign
+  DollarSign,
+  Calendar
 } from 'lucide-react';
 import { api } from '../services/api';
 import { GuestAssessmentItem, GuestMonitoringResponse, Property } from '../types';
 import { GuestDetailModal } from '../components/GuestDetailModal';
 import { useProperty } from '../context/PropertyContext';
+import { formatMMDDYYYY } from '../utils/dateUtils';
+import { DateInput } from '../components/DateInput';
+
+interface ExportColumnOption {
+  key: string;
+  label: string;
+  desc: string;
+  defaultSelected: boolean;
+}
+
+const CONTINUOUS_STAY_COLUMNS: ExportColumnOption[] = [
+  { key: 'guest_name', label: 'Guest Name', desc: 'Normalized primary guest name', defaultSelected: true },
+  { key: 'room_number', label: 'Room#', desc: 'Occupied room number(s)', defaultSelected: true },
+  { key: 'check_in_date', label: 'Check-in Date', desc: 'Original continuous check-in date', defaultSelected: true },
+  { key: 'calculated_departure_date', label: 'Departure Date', desc: 'Calculated or actual departure date', defaultSelected: true },
+  { key: 'total_nights', label: 'Consecutive Nights', desc: 'Total continuous nights as of report date', defaultSelected: true },
+  { key: 'category', label: 'Stay Tier', desc: '90+ Nights, 30+ Days, etc.', defaultSelected: true },
+  { key: 'county_exempt_date', label: 'County Tax Exempt Date (30+)', desc: 'Milestone date for local occupancy tax exemption', defaultSelected: false },
+  { key: 'state_exempt_date', label: 'State Tax Exempt Date (90+)', desc: 'Milestone date for Virginia sales tax exemption', defaultSelected: false },
+  { key: 'tax_status', label: 'Tax Exemption Status', desc: 'Full, County, or Taxable status description', defaultSelected: false },
+  { key: 'fixed_rate', label: 'Fixed Rate / Night', desc: 'Contractual tax-free nightly rate if configured', defaultSelected: false },
+  { key: 'confirmations', label: 'Confirmation Numbers', desc: 'Associated reservation confirmation IDs', defaultSelected: false },
+];
+
+const REPEATED_APPEARANCE_COLUMNS: ExportColumnOption[] = [
+  { key: 'guest_name', label: 'Guest Name', desc: 'Normalized primary guest name', defaultSelected: true },
+  { key: 'mode', label: 'Tracking Mode', desc: 'Monitoring mode indicator', defaultSelected: true },
+  { key: 'stay_duration_days', label: 'Stay Duration (Days)', desc: 'Total appearance count', defaultSelected: true },
+  { key: 'reporting_dates_count', label: 'Appearance Count', desc: 'Number of distinct departure reports', defaultSelected: true },
+  { key: 'first_date', label: 'First Date', desc: 'Earliest reporting appearance date', defaultSelected: true },
+  { key: 'last_date', label: 'Last Date', desc: 'Latest reporting appearance date', defaultSelected: true },
+  { key: 'rooms', label: 'Rooms', desc: 'Room numbers recorded across reports', defaultSelected: true },
+  { key: 'confirmation_numbers', label: 'Confirmation Numbers', desc: 'Confirmation numbers recorded across reports', defaultSelected: true },
+  { key: 'verification_status', label: 'Verification Status', desc: 'Verified or Needs Verification', defaultSelected: true },
+  { key: 'evidence_source', label: 'Evidence Source', desc: 'Evidence summary and departure records', defaultSelected: true },
+  { key: 'notes', label: 'Notes', desc: 'Operational audit notes', defaultSelected: true },
+];
+
+const getTodayString = () => new Date().toISOString().split('T')[0];
 
 export const GuestMonitoringPage: React.FC = () => {
   const { currentPropertyId, currentProperty, isSwitchingProperty } = useProperty();
@@ -37,12 +77,30 @@ export const GuestMonitoringPage: React.FC = () => {
   const [selectedGuestId, setSelectedGuestId] = useState<number | null>(null);
   const [downloadingCsv, setDownloadingCsv] = useState(false);
 
+  // Date-wise reporting states
+  const [asOfDate, setAsOfDate] = useState<string>(getTodayString());
+  const [isAllTime, setIsAllTime] = useState<boolean>(false);
+
+  // Customizable CSV export states & modal
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [selectedColumns, setSelectedColumns] = useState<string[]>(() =>
+    CONTINUOUS_STAY_COLUMNS.filter((c) => c.defaultSelected).map((c) => c.key)
+  );
+  const [exportDate, setExportDate] = useState<string>(getTodayString());
+  const [exportAllTime, setExportAllTime] = useState<boolean>(false);
+
   // Multi-selection for customer merge
   const [selectedIdentityIds, setSelectedIdentityIds] = useState<Set<number>>(new Set());
   const [mergeModalOpen, setMergeModalOpen] = useState(false);
   const [primaryMergeId, setPrimaryMergeId] = useState<number | null>(null);
   const [mergeProcessing, setMergeProcessing] = useState(false);
   const [banner, setBanner] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Sync default export columns when switching activeMode
+  useEffect(() => {
+    const available = activeMode === 'repeated_appearance' ? REPEATED_APPEARANCE_COLUMNS : CONTINUOUS_STAY_COLUMNS;
+    setSelectedColumns(available.filter((c) => c.defaultSelected).map((c) => c.key));
+  }, [activeMode]);
 
   const toggleSelectIdentity = (id: number) => {
     setSelectedIdentityIds((prev) => {
@@ -108,6 +166,8 @@ export const GuestMonitoringPage: React.FC = () => {
       search: search || undefined,
       verification_status: verificationFilter || undefined,
       room: roomFilter || undefined,
+      as_of_date: isAllTime ? undefined : asOfDate,
+      all_time: isAllTime,
       page: 1,
       page_size: 100,
     })
@@ -121,7 +181,7 @@ export const GuestMonitoringPage: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, [activeMode, verificationFilter, currentPropertyId]);
+  }, [activeMode, verificationFilter, currentPropertyId, asOfDate, isAllTime]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -132,10 +192,21 @@ export const GuestMonitoringPage: React.FC = () => {
     setSearch('');
     setVerificationFilter('');
     setRoomFilter('');
+    setAsOfDate(getTodayString());
+    setIsAllTime(false);
     setTimeout(loadData, 0);
   };
 
-  const handleExportCsv = async () => {
+  const openExportDialog = () => {
+    setExportDate(asOfDate);
+    setExportAllTime(isAllTime);
+    const available = activeMode === 'repeated_appearance' ? REPEATED_APPEARANCE_COLUMNS : CONTINUOUS_STAY_COLUMNS;
+    setSelectedColumns(available.filter((c) => c.defaultSelected).map((c) => c.key));
+    setExportModalOpen(true);
+  };
+
+  const handleExecuteExportCsv = async () => {
+    if (selectedColumns.length === 0) return;
     setDownloadingCsv(true);
     try {
       await api.downloadGuestExportCsv({
@@ -144,11 +215,15 @@ export const GuestMonitoringPage: React.FC = () => {
         verification_status: verificationFilter || undefined,
         search: search || undefined,
         room: roomFilter || undefined,
+        as_of_date: exportAllTime ? undefined : exportDate,
+        all_time: exportAllTime,
+        columns: selectedColumns.join(','),
       });
       setBanner({
         type: 'success',
-        message: 'Export completed! Downloaded CSV matching current table.',
+        message: `Export completed! Downloaded CSV with ${selectedColumns.length} customized column${selectedColumns.length > 1 ? 's' : ''}.`,
       });
+      setExportModalOpen(false);
       setTimeout(() => setBanner(null), 5000);
     } catch (err: any) {
       console.error('Direct download failed, falling back to URL download:', err);
@@ -158,8 +233,12 @@ export const GuestMonitoringPage: React.FC = () => {
         verification_status: verificationFilter || undefined,
         search: search || undefined,
         room: roomFilter || undefined,
+        as_of_date: exportAllTime ? undefined : exportDate,
+        all_time: exportAllTime,
+        columns: selectedColumns.join(','),
       });
       window.open(url, '_blank');
+      setExportModalOpen(false);
     } finally {
       setDownloadingCsv(false);
     }
@@ -173,6 +252,8 @@ export const GuestMonitoringPage: React.FC = () => {
       room: roomFilter || undefined,
       property_id: currentPropertyId,
       min_nights: minNights,
+      as_of_date: isAllTime ? undefined : asOfDate,
+      all_time: isAllTime,
     });
     window.open(url, '_blank');
   };
@@ -250,17 +331,17 @@ export const GuestMonitoringPage: React.FC = () => {
           )}
 
           <button
-            onClick={handleExportCsv}
+            onClick={openExportDialog}
             disabled={downloadingCsv}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition-all shadow-sm hover:border-amber-500/40 disabled:opacity-60 cursor-pointer"
-            title="Download CSV export matching current table"
+            title="Customize columns and export CSV"
           >
             {downloadingCsv ? (
               <Loader2 className="w-4 h-4 text-amber-400 animate-spin" />
             ) : (
               <Download className="w-4 h-4 text-amber-400" />
             )}
-            <span>{downloadingCsv ? 'Exporting CSV...' : 'Export CSV'}</span>
+            <span>{downloadingCsv ? 'Exporting...' : 'Export CSV'}</span>
           </button>
 
           <button
@@ -339,7 +420,7 @@ export const GuestMonitoringPage: React.FC = () => {
         >
           <div className="flex items-center justify-between mb-2">
             <span className="text-[11px] font-bold uppercase tracking-wider text-rose-400">
-              30–89 Consecutive Days
+              30+ Consecutive Days
             </span>
             <div className="w-7 h-7 rounded-lg bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-rose-400">
               <Flame className="w-4 h-4" />
@@ -422,7 +503,7 @@ export const GuestMonitoringPage: React.FC = () => {
           </span>
         </button>
 
-        {/* Tab 3: 30–89 Days Only (County Exempt Only) */}
+        {/* Tab 3: 30+ Days Only (County Exempt Only) */}
         <button
           onClick={() => setActiveMode('continuous_stay_30_89')}
           className={`flex items-center justify-center gap-2 py-3 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
@@ -432,7 +513,7 @@ export const GuestMonitoringPage: React.FC = () => {
           }`}
         >
           <Flame className={`w-4 h-4 shrink-0 ${activeMode === 'continuous_stay_30_89' ? 'text-white' : 'text-rose-400'}`} />
-          <span className="truncate">30–89 Days (County Only)</span>
+          <span className="truncate">30+ Days (County Only)</span>
           <span
             className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono font-bold shrink-0 ${
               activeMode === 'continuous_stay_30_89'
@@ -440,7 +521,7 @@ export const GuestMonitoringPage: React.FC = () => {
                 : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
             }`}
           >
-            30–89d
+            30+d
           </span>
         </button>
 
@@ -474,7 +555,7 @@ export const GuestMonitoringPage: React.FC = () => {
         <Sparkles className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
         {activeMode === 'continuous_stay' ? (
           <div>
-            <strong className="text-amber-400 font-bold">30 & 90 Consecutive Days Tax Exemption Suite:</strong> Displays all guests with uninterrupted continuous occupancy of 30 or more calendar nights. Guests with <strong className="text-rose-400">30–89 consecutive days</strong> qualify for County / Local Transient Occupancy Tax exemption starting on Day 31. Guests with <strong className="text-emerald-400">90+ consecutive days</strong> qualify for 100% full exemption from both <strong>Virginia State Sales Tax (5.3%)</strong> and County Tax starting Day 91. Stays must be uninterrupted consecutive days.
+            <strong className="text-amber-400 font-bold">30 & 90 Consecutive Days Tax Exemption Suite:</strong> Displays all guests with uninterrupted continuous occupancy of 30 or more calendar nights. Guests with <strong className="text-rose-400">30+ consecutive days</strong> qualify for County / Local Transient Occupancy Tax exemption starting on Day 31. Guests with <strong className="text-emerald-400">90+ consecutive days</strong> qualify for 100% full exemption from both <strong>Virginia State Sales Tax (5.3%)</strong> and County Tax starting Day 91. Stays must be uninterrupted consecutive days.
           </div>
         ) : activeMode === 'continuous_stay_90' ? (
           <div>
@@ -482,13 +563,82 @@ export const GuestMonitoringPage: React.FC = () => {
           </div>
         ) : activeMode === 'continuous_stay_30_89' ? (
           <div>
-            <strong className="text-rose-400 font-bold">30–89 Consecutive Days County Tax Exemption Rules:</strong> Evaluates uninterrupted occupancy between 30 and 89 consecutive calendar nights across continuous reservation chains. These guests qualify for <strong>County / Local Transient Occupancy Tax</strong> exemption starting on Day 31, but have not yet reached the 90-day threshold for Virginia State Sales Tax.
+            <strong className="text-rose-400 font-bold">30+ Consecutive Days County Tax Exemption Rules:</strong> Evaluates uninterrupted occupancy of 30 or more consecutive calendar nights across continuous reservation chains. These guests qualify for <strong>County / Local Transient Occupancy Tax</strong> exemption starting on Day 31, but have not yet reached the 90-day threshold for Virginia State Sales Tax.
           </div>
         ) : (
           <div>
             <strong className="text-sky-400 font-bold">Mode B (Operational Audit):</strong> Identifies guests who appear on 3 or more distinct daily departure reports within the rolling window. Useful for identifying frequent returners or broken reservation chains. <em>Note: Tax exemption legally requires uninterrupted consecutive days.</em>
           </div>
         )}
+      </div>
+
+      {/* Date-Wise Report Toolbar */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 p-3.5 rounded-2xl bg-slate-900 border border-slate-800 shadow-md">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex items-center gap-1.5 text-xs font-bold text-slate-300">
+            <Calendar className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>Report Date:</span>
+          </div>
+
+          <DateInput
+            value={asOfDate}
+            onChange={(val) => {
+              setAsOfDate(val);
+              setIsAllTime(false);
+            }}
+            disabled={isAllTime}
+            className={`px-3 py-1.5 rounded-xl border text-xs font-mono font-bold transition-all focus:outline-none ${
+              isAllTime
+                ? 'bg-slate-800/40 border-slate-800 text-slate-500 cursor-not-allowed'
+                : 'bg-slate-950 border-amber-500/50 text-amber-300 focus:border-amber-400 focus:ring-1 focus:ring-amber-400/30'
+            }`}
+          />
+
+          <button
+            type="button"
+            onClick={() => {
+              setAsOfDate(getTodayString());
+              setIsAllTime(false);
+            }}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              !isAllTime && asOfDate === getTodayString()
+                ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/20'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
+            }`}
+            title="Set report date to today"
+          >
+            Today
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsAllTime((prev) => !prev)}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              isAllTime
+                ? 'bg-purple-600 text-white shadow-md shadow-purple-600/20'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200'
+            }`}
+            title="Toggle showing all historical continuous stays without date cutoff"
+          >
+            {isAllTime ? '✓ All Time (Historical)' : 'All Time'}
+          </button>
+        </div>
+
+        <div className="text-[11px] text-slate-400 flex items-center gap-2">
+          {isAllTime ? (
+            <span className="inline-flex items-center gap-1.5 text-purple-300 font-semibold bg-purple-950/40 border border-purple-500/30 px-3 py-1 rounded-lg">
+              <Sparkles className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+              <span>All-time historical view enabled (all continuous stays in records).</span>
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 text-slate-300 bg-slate-950/60 border border-slate-800/80 px-3 py-1 rounded-lg">
+              <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span>
+                As of <strong className="text-amber-400 font-mono">{formatMMDDYYYY(asOfDate)}</strong>: Showing active stays in last <strong className="text-rose-400">30 days</strong> (30+ days) &amp; last <strong className="text-emerald-400">90 days</strong> (90+ nights).
+              </span>
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Filter Bar */}
@@ -677,10 +827,10 @@ export const GuestMonitoringPage: React.FC = () => {
                       {activeMode !== 'repeated_appearance' ? (
                         <>
                           <td className="py-3.5 px-4 font-mono font-bold text-slate-200">
-                            {item.first_date || 'N/A'}
+                            {formatMMDDYYYY(item.first_date)}
                           </td>
                           <td className="py-3.5 px-4 font-mono text-slate-300">
-                            {item.last_date || 'N/A'}
+                            {formatMMDDYYYY(item.last_date)}
                           </td>
                           <td className="py-3.5 px-4">
                             <div className="space-y-1">
@@ -699,27 +849,29 @@ export const GuestMonitoringPage: React.FC = () => {
                                       : 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
                                   }`}
                                 >
-                                  {item.tier_category ||
-                                    (item.stay_duration_days >= 90
-                                      ? '90+ Nights'
-                                      : item.stay_duration_days >= 30
-                                      ? '30–89 Nights'
-                                      : item.stay_duration_days >= 21
-                                      ? '21–29 Nights'
-                                      : '7–20 Nights')}
+                                  {item.tier_category === '30–89 Nights' || item.tier_category === '30+ Days'
+                                    ? '30+ Days'
+                                    : (item.tier_category ||
+                                        (item.stay_duration_days >= 90
+                                          ? '90+ Nights'
+                                          : item.stay_duration_days >= 30
+                                          ? '30+ Days'
+                                          : item.stay_duration_days >= 21
+                                          ? '21–29 Nights'
+                                          : '7–20 Nights'))}
                                 </span>
                               </div>
                             </div>
                           </td>
                           <td className="py-3.5 px-4 font-mono text-amber-300 font-semibold">
-                            {item.county_exempt_date || 'N/A'}
+                            {formatMMDDYYYY(item.county_exempt_date)}
                           </td>
                           <td className="py-3.5 px-4 font-mono font-semibold">
                             {item.stay_duration_days >= 90 ? (
-                              <span className="text-emerald-400">{item.state_exempt_date || 'N/A'}</span>
+                              <span className="text-emerald-400">{formatMMDDYYYY(item.state_exempt_date)}</span>
                             ) : (
-                              <span className="text-slate-500 font-normal text-[11px]" title={`Projected Day 91: ${item.state_exempt_date || 'N/A'}`}>
-                                {item.state_exempt_date ? `Proj: ${item.state_exempt_date}` : '—'}
+                              <span className="text-slate-500 font-normal text-[11px]" title={`Projected Day 91: ${formatMMDDYYYY(item.state_exempt_date)}`}>
+                                {item.state_exempt_date ? `Proj: ${formatMMDDYYYY(item.state_exempt_date)}` : '—'}
                               </span>
                             )}
                           </td>
@@ -751,8 +903,8 @@ export const GuestMonitoringPage: React.FC = () => {
                               {item.reporting_dates_count} Dates
                             </span>
                           </td>
-                          <td className="py-3.5 px-4 font-mono text-slate-300">{item.first_date || 'N/A'}</td>
-                          <td className="py-3.5 px-4 font-mono text-slate-300">{item.last_date || 'N/A'}</td>
+                          <td className="py-3.5 px-4 font-mono text-slate-300">{formatMMDDYYYY(item.first_date)}</td>
+                          <td className="py-3.5 px-4 font-mono text-slate-300">{formatMMDDYYYY(item.last_date)}</td>
                           <td className="py-3.5 px-4">
                             {item.verification_status === 'Verified' ? (
                               <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
@@ -932,6 +1084,260 @@ export const GuestMonitoringPage: React.FC = () => {
                   </>
                 )}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Columns & Date CSV Export Modal */}
+      {exportModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="bg-slate-900 border border-slate-700 w-full max-w-2xl rounded-2xl shadow-2xl p-6 space-y-5 animate-in zoom-in-95 duration-150 max-h-[90vh] flex flex-col">
+            {/* Modal Header */}
+            <div className="flex items-start justify-between gap-4 border-b border-slate-800 pb-4 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center">
+                  <Download className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <span>Export CSV</span>
+                    <span className="text-xs px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-300 border border-amber-500/30 font-mono">
+                      Custom Columns
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Select report date and customize which columns to include in your CSV download.
+                  </p>
+                </div>
+              </div>
+
+              {!downloadingCsv && (
+                <button
+                  onClick={() => setExportModalOpen(false)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              )}
+            </div>
+
+            <div className="space-y-4 overflow-y-auto flex-1 pr-1">
+              {/* Date Selection Box */}
+              <div className="p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 space-y-2">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-slate-300 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-amber-400" />
+                    Report Date for Export:
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-normal">
+                    {exportAllTime ? 'All historical records' : `Last 30/90 days relative to ${formatMMDDYYYY(exportDate)}`}
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <DateInput
+                    value={exportDate}
+                    onChange={(val) => {
+                      setExportDate(val);
+                      setExportAllTime(false);
+                    }}
+                    disabled={exportAllTime}
+                    className={`px-3 py-1.5 rounded-lg border text-xs font-mono font-bold transition-all focus:outline-none ${
+                      exportAllTime
+                        ? 'bg-slate-800/40 border-slate-800 text-slate-500 cursor-not-allowed'
+                        : 'bg-slate-900 border-slate-700 text-amber-300 focus:border-amber-400'
+                    }`}
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExportDate(getTodayString());
+                      setExportAllTime(false);
+                    }}
+                    className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold"
+                  >
+                    Today
+                  </button>
+
+                  <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer ml-auto">
+                    <input
+                      type="checkbox"
+                      checked={exportAllTime}
+                      onChange={(e) => setExportAllTime(e.target.checked)}
+                      className="w-4 h-4 rounded text-purple-600 bg-slate-900 border-slate-700 focus:ring-purple-500 accent-purple-600 cursor-pointer"
+                    />
+                    <span className="font-semibold text-purple-300">All Time (No date cutoff)</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Preset Quick Selection Buttons */}
+              <div className="space-y-2">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center justify-between">
+                  <span>Quick Column Presets:</span>
+                  <span className="font-mono text-amber-400 text-xs font-bold">
+                    {selectedColumns.length} of {(activeMode === 'repeated_appearance' ? REPEATED_APPEARANCE_COLUMNS : CONTINUOUS_STAY_COLUMNS).length} selected
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const cols = activeMode === 'repeated_appearance' ? REPEATED_APPEARANCE_COLUMNS : CONTINUOUS_STAY_COLUMNS;
+                      setSelectedColumns(cols.map((c) => c.key));
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 hover:border-slate-600 transition-colors cursor-pointer"
+                  >
+                    Select All
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const cols = activeMode === 'repeated_appearance' ? REPEATED_APPEARANCE_COLUMNS : CONTINUOUS_STAY_COLUMNS;
+                      setSelectedColumns(cols.filter((c) => c.defaultSelected).map((c) => c.key));
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 hover:border-slate-600 transition-colors cursor-pointer"
+                  >
+                    Default
+                  </button>
+
+                  {activeMode !== 'repeated_appearance' ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedColumns(['guest_name', 'check_in_date', 'calculated_departure_date', 'total_nights']);
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 text-xs font-bold border border-amber-500/30 transition-colors cursor-pointer"
+                        title="Only guest names, arrival/departure dates, and duration"
+                      >
+                        ⚡ Names &amp; Dates Only
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedColumns([
+                            'guest_name',
+                            'room_number',
+                            'check_in_date',
+                            'calculated_departure_date',
+                            'category',
+                            'county_exempt_date',
+                            'state_exempt_date',
+                            'tax_status'
+                          ]);
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-xs font-bold border border-emerald-500/30 transition-colors cursor-pointer"
+                      >
+                        🛡️ Tax Exemption Summary
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedColumns(['guest_name', 'first_date', 'last_date', 'stay_duration_days']);
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 text-xs font-bold border border-sky-500/30 transition-colors cursor-pointer"
+                    >
+                      ⚡ Names &amp; Dates Only
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedColumns([])}
+                    className="px-2.5 py-1.5 rounded-lg bg-slate-800/60 hover:bg-slate-800 text-slate-400 hover:text-slate-200 text-xs transition-colors cursor-pointer ml-auto"
+                  >
+                    Clear All
+                  </button>
+                </div>
+              </div>
+
+              {/* Checkbox Grid for Individual Columns */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                {(activeMode === 'repeated_appearance' ? REPEATED_APPEARANCE_COLUMNS : CONTINUOUS_STAY_COLUMNS).map((col) => {
+                  const isChecked = selectedColumns.includes(col.key);
+                  return (
+                    <label
+                      key={col.key}
+                      onClick={() => {
+                        setSelectedColumns((prev) =>
+                          prev.includes(col.key) ? prev.filter((k) => k !== col.key) : [...prev, col.key]
+                        );
+                      }}
+                      className={`p-3 rounded-xl border flex items-start gap-3 cursor-pointer transition-all ${
+                        isChecked
+                          ? 'bg-amber-500/10 border-amber-500/50 shadow-sm'
+                          : 'bg-slate-800/30 border-slate-800 hover:bg-slate-800/60'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => {}}
+                        className="w-4 h-4 mt-0.5 rounded text-amber-500 bg-slate-900 border-slate-700 focus:ring-amber-400 accent-amber-500 cursor-pointer shrink-0"
+                      />
+                      <div className="space-y-0.5">
+                        <div className={`text-xs font-bold ${isChecked ? 'text-white' : 'text-slate-300'}`}>
+                          {col.label}
+                        </div>
+                        <div className="text-[10px] text-slate-400 leading-snug">
+                          {col.desc}
+                        </div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-between gap-3 pt-4 border-t border-slate-800 shrink-0">
+              <div className="text-xs text-slate-400">
+                {selectedColumns.length === 0 ? (
+                  <span className="text-rose-400 font-semibold">Please select at least 1 column.</span>
+                ) : (
+                  <span>
+                    Ready to export <strong className="text-white font-mono">{selectedColumns.length}</strong> column{selectedColumns.length > 1 ? 's' : ''}.
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setExportModalOpen(false)}
+                  disabled={downloadingCsv}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleExecuteExportCsv}
+                  disabled={downloadingCsv || selectedColumns.length === 0}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold transition-all shadow-md shadow-amber-500/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  {downloadingCsv ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Exporting CSV...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-4 h-4" />
+                      <span>Download CSV ({selectedColumns.length})</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>

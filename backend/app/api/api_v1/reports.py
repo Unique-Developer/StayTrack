@@ -4,7 +4,7 @@ import datetime
 from pathlib import Path
 from typing import List, Optional, Dict
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, status, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.db.models import (
@@ -14,6 +14,8 @@ from app.db.models import (
     GuestIdentity,
     GuestIdentityMatch,
     ReportProcessingJob,
+    ReportingCalendar,
+    StayAssessment,
     User
 )
 from app.parsers.pdf_parser import parse_departures_pdf
@@ -22,6 +24,7 @@ from app.core.storage import storage_service
 from app.core.config import settings
 from app.analytics.identity_matcher import match_or_create_guest_identity
 from app.analytics.stay_detector import recalculate_all_analytics
+from app.analytics.report_excel import generate_report_excel
 from app.schemas.models import (
     ReportPreviewFile,
     ReportCommitRequest,
@@ -127,12 +130,13 @@ async def commit_reports(
 ):
     """
     Step 2 of Import Workflow:
-    Persists original PDF in storage, saves report & guest records in database,
-    performs identity reconciliation, and triggers analytics recalculation.
+    Saves report & extracted guest records in database, performs identity reconciliation,
+    and triggers analytics recalculation. Physical PDFs are not permanently stored.
     """
     prop = db.query(Property).first()
     property_id = prop.id if prop else 1
     committed_ids = []
+    affected_property_ids = set()
 
     for item in payload.files:
         staging_path = TEMP_STAGING_DIR / f"{item.temp_file_id}.pdf"
@@ -150,6 +154,9 @@ async def commit_reports(
         if not rep_date:
             raise HTTPException(status_code=400, detail=f"Invalid report date: {item.report_date}")
 
+        target_prop_id = item.property_id or property_id
+        affected_property_ids.add(target_prop_id)
+
         # Handle replacement if indicated
         if item.replace_existing_id:
             old_rep = db.query(UploadedReport).filter(UploadedReport.id == item.replace_existing_id).first()
@@ -157,13 +164,15 @@ async def commit_reports(
                 old_rep.is_active = False
                 log_audit(db, current_user.id, "replace_report", "report", str(old_rep.id), {"replaced_by_temp_id": item.temp_file_id})
 
-        # Save to persistent storage
-        stored_name, file_hash, file_size = storage_service.save_file(file_bytes, f"departures_{rep_date.isoformat()}.pdf")
+        # Calculate hash & size without saving permanent physical PDF to disk
+        file_hash = storage_service.calculate_hash(file_bytes)
+        file_size = len(file_bytes)
+        stored_name = f"report_{target_prop_id}_{rep_date.isoformat()}_{file_hash[:12]}"
 
         # Create UploadedReport
         orig_filename = item.original_filename or f"departures_{rep_date.isoformat()}.pdf"
         report = UploadedReport(
-            property_id=item.property_id or property_id,
+            property_id=target_prop_id,
             original_filename=orig_filename,
             stored_filename=stored_name,
             file_hash=file_hash,
@@ -185,8 +194,8 @@ async def commit_reports(
             rec_c_in = parse_date_flexible(rec_dict.get("check_in_date"))
             rec_c_out = parse_date_flexible(rec_dict.get("calculated_departure_date"))
 
-            # Reconciliation
-            identity, match = match_or_create_guest_identity(db, property_id, rec_dict)
+            # Reconciliation with correct target motel property ID
+            identity, match = match_or_create_guest_identity(db, target_prop_id, rec_dict)
 
             guest_rec = GuestRecord(
                 report_id=report.id,
@@ -221,7 +230,7 @@ async def commit_reports(
             db.add(match)
 
         committed_ids.append(report.id)
-        # Clean up staging file
+        # Clean up staging file immediately (no persistent PDF retention needed)
         try:
             staging_path.unlink()
         except Exception:
@@ -229,8 +238,9 @@ async def commit_reports(
 
     db.commit()
 
-    # Recalculate rolling window and stay assessments
-    recalculate_all_analytics(db, property_id)
+    # Recalculate rolling window and stay assessments for all affected properties
+    for pid in affected_property_ids:
+        recalculate_all_analytics(db, pid)
 
     log_audit(
         db,
@@ -289,19 +299,42 @@ def download_report(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """
+    Downloads an Excel (.xlsx) spreadsheet containing the extracted text and records data for this report.
+    Eliminates reliance on stored physical PDF files.
+    """
     report = db.query(UploadedReport).filter(UploadedReport.id == report_id).first()
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
 
-    file_path = storage_service.get_file_path(report.stored_filename)
-    if not file_path or not file_path.exists():
-        raise HTTPException(status_code=404, detail="Physical PDF file missing from storage")
+    records = (
+        db.query(GuestRecord)
+        .filter(GuestRecord.report_id == report.id)
+        .order_by(GuestRecord.room_number.asc(), GuestRecord.check_in_date.asc())
+        .all()
+    )
 
-    log_audit(db, current_user.id, "download_pdf", "report", str(report.id))
-    return FileResponse(
-        path=file_path,
-        media_type="application/pdf",
-        filename=report.original_filename
+    excel_buf = generate_report_excel(report, records)
+    stem = Path(report.original_filename).stem if report.original_filename else f"report_{report.report_date}"
+    clean_stem = "".join(c for c in stem if c.isalnum() or c in "._- ")
+    export_filename = f"{clean_stem}_data.xlsx"
+
+    log_audit(
+        db,
+        current_user.id,
+        "download_report_excel",
+        "report",
+        str(report.id),
+        details={"filename": export_filename, "records_count": len(records), "property_id": report.property_id}
+    )
+
+    return Response(
+        content=excel_buf.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{export_filename}"',
+            "Access-Control-Expose-Headers": "Content-Disposition"
+        }
     )
 
 
@@ -311,17 +344,88 @@ def delete_report(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """
+    Deletes the report and all of its associated data:
+    - Guest records extracted from this report
+    - Guest identity matches linked to these guest records
+    - Processing jobs and calendar entries associated with this report
+    - Orphan guest identities that no longer have any records in the system
+    - Recalculates rolling window and stay assessments for the motel property
+    """
     report = db.query(UploadedReport).filter(UploadedReport.id == report_id).first()
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
 
     prop_id = report.property_id
-    storage_service.delete_file(report.stored_filename)
+    rep_date = report.report_date
+    orig_name = report.original_filename
+
+    # 1. Collect all guest records and associated guest identity IDs
+    records = db.query(GuestRecord).filter(GuestRecord.report_id == report_id).all()
+    rec_ids = [r.id for r in records]
+    affected_identity_ids = list({r.guest_identity_id for r in records if r.guest_identity_id})
+
+    # 2. Delete matches linked to these guest records
+    if rec_ids:
+        db.query(GuestIdentityMatch).filter(GuestIdentityMatch.guest_record_id.in_(rec_ids)).delete(synchronize_session=False)
+
+    # 3. Delete guest records
+    if rec_ids:
+        db.query(GuestRecord).filter(GuestRecord.report_id == report_id).delete(synchronize_session=False)
+
+    # 4. Delete processing jobs for this report
+    db.query(ReportProcessingJob).filter(ReportProcessingJob.report_id == report_id).delete(synchronize_session=False)
+
+    # 5. Delete reporting calendar entry referencing this report
+    db.query(ReportingCalendar).filter(ReportingCalendar.report_id == report_id).delete(synchronize_session=False)
+
+    # 6. Delete physical file if present
+    if report.stored_filename:
+        storage_service.delete_file(report.stored_filename)
+
+    # 7. Delete the report row
     db.delete(report)
+    db.flush()
+
+    # 8. Clean up orphan guest identities (identities with 0 remaining guest records)
+    for ident_id in affected_identity_ids:
+        rem_count = db.query(GuestRecord).filter(GuestRecord.guest_identity_id == ident_id).count()
+        if rem_count == 0:
+            db.query(StayAssessment).filter(StayAssessment.guest_identity_id == ident_id).delete(synchronize_session=False)
+            db.query(GuestIdentityMatch).filter(GuestIdentityMatch.guest_identity_id == ident_id).delete(synchronize_session=False)
+            db.query(GuestIdentity).filter(GuestIdentity.id == ident_id).delete(synchronize_session=False)
+
+    # Also clean any other orphan identities for this property with 0 records
+    property_orphans = (
+        db.query(GuestIdentity)
+        .filter(GuestIdentity.property_id == prop_id, ~GuestIdentity.records.any())
+        .all()
+    )
+    for orphan in property_orphans:
+        db.query(StayAssessment).filter(StayAssessment.guest_identity_id == orphan.id).delete(synchronize_session=False)
+        db.query(GuestIdentityMatch).filter(GuestIdentityMatch.guest_identity_id == orphan.id).delete(synchronize_session=False)
+        db.delete(orphan)
+
     db.commit()
 
-    # Recalculate analytics
+    # 9. Recalculate rolling window and stay assessments for this motel property
     recalculate_all_analytics(db, prop_id)
 
-    log_audit(db, current_user.id, "delete_report", "report", str(report_id))
-    return {"success": True, "message": "Report deleted successfully"}
+    log_audit(
+        db,
+        current_user.id,
+        "delete_report",
+        "report",
+        str(report_id),
+        details={
+            "property_id": prop_id,
+            "original_filename": orig_name,
+            "report_date": rep_date.isoformat() if rep_date else None,
+            "deleted_records_count": len(rec_ids)
+        }
+    )
+
+    return {
+        "success": True,
+        "message": f"Report '{orig_name}' and its {len(rec_ids)} records were successfully deleted."
+    }

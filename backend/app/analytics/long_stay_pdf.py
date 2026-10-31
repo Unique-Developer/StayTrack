@@ -11,7 +11,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.pdfgen import canvas
 
 from app.db.models import Property, GuestIdentity, GuestRecord, UploadedReport
-from app.core.time_utils import format_ny_now_str
+from app.core.time_utils import format_ny_now_str, get_ny_now
 
 
 def get_continuous_stays(
@@ -19,12 +19,23 @@ def get_continuous_stays(
     property_id: Optional[int] = None,
     min_nights: int = 7,
     search: Optional[str] = None,
-    room: Optional[str] = None
+    room: Optional[str] = None,
+    as_of_date: Optional[datetime.date] = None,
+    all_time: bool = False
 ) -> Tuple[str, List[Dict[str, Any]], Dict[str, int]]:
     """
     Extracts and evaluates uninterrupted continuous occupancy chains for all guests.
-    Sorts descending from 30+ nights down to lesser continuous stay customers.
-    Ignores guests who did not stay continuously in a row (e.g. breaks/gaps between stays).
+    Supports date-wise evaluation as of a target date (or today's date).
+    When evaluated as of a date (all_time=False):
+      - Filters out stays starting in the future after as_of_date.
+      - Calculates accrued continuous nights up to as_of_date for active in-house stays.
+      - For past departed stays, includes only recent stays within the relevant tax exemption
+        window from as_of_date:
+          * 90+ consecutive nights: stays ending within the last 90 days from as_of_date.
+          * 30–89 consecutive nights: stays ending within the last 30 days from as_of_date.
+          * < 30 nights: stays ending within the last 30 days from as_of_date.
+        Stays before those cutoffs are excluded as they pertain to prior completed tax cycles.
+      - When all_time=True, all historical continuous stays are included.
     """
     if not isinstance(min_nights, int):
         try:
@@ -50,13 +61,22 @@ def get_continuous_stays(
         .order_by(UploadedReport.report_date.desc())
         .first()
     )
-    fallback_as_of = latest_report[0] if latest_report else datetime.date(2026, 10, 8)
+    latest_report_date = latest_report[0] if latest_report else None
+
+    # Resolve target as_of_date if not specified
+    if not all_time:
+        if as_of_date is None:
+            today_ny = get_ny_now().date()
+            if latest_report_date and (today_ny - latest_report_date).days > 90:
+                as_of_date = latest_report_date
+            else:
+                as_of_date = today_ny
 
     identities = db.query(GuestIdentity).filter(GuestIdentity.property_id == target_property_id).all()
     results: List[Dict[str, Any]] = []
 
     for identity in identities:
-        records = (
+        records_query = (
             db.query(GuestRecord)
             .join(UploadedReport, GuestRecord.report_id == UploadedReport.id)
             .filter(
@@ -64,9 +84,10 @@ def get_continuous_stays(
                 UploadedReport.status == "completed",
                 UploadedReport.is_active == True
             )
-            .order_by(GuestRecord.check_in_date.asc(), UploadedReport.report_date.asc())
-            .all()
         )
+        if not all_time and as_of_date:
+            records_query = records_query.filter(UploadedReport.report_date <= as_of_date)
+        records = records_query.order_by(GuestRecord.check_in_date.asc(), UploadedReport.report_date.asc()).all()
 
         # Deduplicate records representing the exact same reservation
         seen_res = set()
@@ -128,62 +149,106 @@ def get_continuous_stays(
 
             # If an original check-in date is configured and earlier than earliest chain, anchor it
             if identity.original_check_in_date:
-                # Expand the primary continuous chain back to the original check-in date
-                primary_chain = chains[-1] if chains else curr_chain
-                if identity.original_check_in_date < primary_chain["start"]:
-                    primary_chain["start"] = identity.original_check_in_date
-                    primary_chain["nights"] = (primary_chain["end"] - primary_chain["start"]).days
+                # Only anchor if original check-in date is on or before as_of_date
+                if all_time or not as_of_date or identity.original_check_in_date <= as_of_date:
+                    primary_chain = chains[-1] if chains else curr_chain
+                    if identity.original_check_in_date < primary_chain["start"]:
+                        primary_chain["start"] = identity.original_check_in_date
+                        primary_chain["nights"] = (primary_chain["end"] - primary_chain["start"]).days
 
         if not chains:
             continue
 
         # Check all continuous chains for this guest
         for c in chains:
-            nights = c["nights"]
-            if nights >= min_nights:
-                start_d = c["start"]
-                county_exempt_d = start_d + datetime.timedelta(days=30)
-                state_exempt_d = start_d + datetime.timedelta(days=90)
+            start_d = c["start"]
+            end_d = c["end"]
+            chain_nights = c["nights"]
 
-                if nights >= 90:
-                    cat = "90+ Nights"
-                    cat_key = "90+"
-                    tax_status = "Fully Tax Exempt (State + County)"
-                elif nights >= 30:
-                    cat = "30–89 Nights"
-                    cat_key = "30+"
-                    tax_status = "County Tax Exempt Only (30+ Days)"
-                elif nights >= 21:
-                    cat = "21–29 Nights"
-                    cat_key = "21+"
-                    tax_status = f"Approaching County Exemption ({30 - nights}d left)"
-                elif nights >= 7:
-                    cat = "7–20 Nights"
-                    cat_key = "7+"
-                    tax_status = f"Standard Taxable ({30 - nights}d to County Exempt)"
+            if not all_time and as_of_date:
+                # Exclude future stays starting after as_of_date
+                if start_d > as_of_date:
+                    continue
+
+                is_active = end_d > as_of_date
+                if is_active:
+                    accrued_nights = (as_of_date - start_d).days
+                    effective_nights = accrued_nights
                 else:
-                    cat = "< 7 Nights"
-                    cat_key = "<7"
-                    tax_status = f"Standard Taxable ({30 - nights}d to County Exempt)"
+                    accrued_nights = chain_nights
+                    effective_nights = chain_nights
 
-                results.append({
-                    "guest_name": identity.normalized_name,
-                    "guest_identity_id": identity.id,
-                    "check_in": c["start"],
-                    "check_out": c["end"],
-                    "total_nights": c["nights"],
-                    "rooms_count": len(c["rooms"]) if c["rooms"] else 1,
-                    "rooms_list": sorted(list(c["rooms"])),
-                    "category": cat,
-                    "category_key": cat_key,
-                    "tax_status": tax_status,
-                    "county_exempt_date": county_exempt_d,
-                    "state_exempt_date": state_exempt_d,
-                    "fixed_rate": identity.fixed_rate,
-                    "extended": "Yes" if c["extensions"] > 0 else "No",
-                    "ext_count": c["extensions"],
-                    "confirmations": c["confs"]
-                })
+                # Check minimum threshold
+                if effective_nights < min_nights:
+                    continue
+
+                # Filter out past stays before the required tax window
+                # 90+ days tier: stay must have ended within last 90 days from as_of_date
+                # 30–89 days tier: stay must have ended within last 30 days from as_of_date
+                # <30 days: stay must have ended within last 30 days from as_of_date
+                if not is_active:
+                    cutoff_days = 90 if effective_nights >= 90 else 30
+                    past_cutoff = as_of_date - datetime.timedelta(days=cutoff_days)
+                    if end_d < past_cutoff:
+                        continue
+            else:
+                effective_nights = chain_nights
+                is_active = False
+                if effective_nights < min_nights:
+                    continue
+
+            start_d = c["start"]
+            county_exempt_d = start_d + datetime.timedelta(days=30)
+            state_exempt_d = start_d + datetime.timedelta(days=90)
+
+            if effective_nights >= 90:
+                cat = "90+ Nights"
+                cat_key = "90+"
+                tax_status = "Fully Tax Exempt (State + County)"
+            elif effective_nights >= 30:
+                cat = "30+ Days"
+                cat_key = "30+"
+                tax_status = "County Tax Exempt Only (30+ Days)"
+            elif effective_nights >= 21:
+                cat = "21–29 Nights"
+                cat_key = "21+"
+                tax_status = f"Approaching County Exemption ({30 - effective_nights}d left)"
+            elif effective_nights >= 7:
+                cat = "7–20 Nights"
+                cat_key = "7+"
+                tax_status = f"Standard Taxable ({30 - effective_nights}d to County Exempt)"
+            else:
+                cat = "< 7 Nights"
+                cat_key = "<7"
+                tax_status = f"Standard Taxable ({30 - effective_nights}d to County Exempt)"
+
+            evidence_msg = (
+                f"Active continuous stay: {effective_nights} nights as of {as_of_date.strftime('%m-%d-%Y')} ({chain_nights} nights booked to {end_d.strftime('%m-%d-%Y')})."
+                if is_active and as_of_date
+                else f"Unbroken continuous stay: {effective_nights} nights ({cat})."
+            )
+
+            results.append({
+                "guest_name": identity.normalized_name,
+                "guest_identity_id": identity.id,
+                "check_in": start_d,
+                "check_out": end_d,
+                "total_nights": effective_nights,
+                "rooms_count": len(c["rooms"]) if c["rooms"] else 1,
+                "rooms_list": sorted(list(c["rooms"])),
+                "category": cat,
+                "category_key": cat_key,
+                "tax_status": tax_status,
+                "county_exempt_date": county_exempt_d,
+                "state_exempt_date": state_exempt_d,
+                "fixed_rate": identity.fixed_rate,
+                "extended": "Yes" if c["extensions"] > 0 else "No",
+                "ext_count": c["extensions"],
+                "confirmations": c["confs"],
+                "is_active": is_active,
+                "booked_nights": chain_nights,
+                "evidence_source": evidence_msg
+            })
 
     # Optional search filtering (by guest name, room number, or confirmation number)
     if search and isinstance(search, str):
@@ -269,12 +334,13 @@ def draw_background(canv: canvas.Canvas, doc: SimpleDocTemplate):
 
 class ExecutiveBannerFlowable(Flowable):
     """Modern executive header with property badge, title, subtitle, and live audit KPI."""
-    def __init__(self, prop_name: str, total_count: int, width: float = 720, height: float = 46):
+    def __init__(self, prop_name: str, total_count: int, width: float = 720, height: float = 46, as_of_date: Optional[datetime.date] = None):
         super().__init__()
         self.prop_name = prop_name
         self.total_count = total_count
         self.width = width
         self.height = height
+        self.as_of_date = as_of_date
 
     def wrap(self, availWidth, availHeight):
         return self.width, self.height
@@ -298,7 +364,11 @@ class ExecutiveBannerFlowable(Flowable):
         self.canv.setFont("Helvetica", 8)
         self.canv.setFillColor(colors.HexColor("#94a3b8"))
         now_str = format_ny_now_str("%b %d, %Y • %I:%M %p %Z")
-        self.canv.drawString(0, self.height - 44, f"Continuous Stay & Extended Occupancy Verification   |   Generated: {now_str}")
+        if self.as_of_date:
+            as_of_display = self.as_of_date.strftime("%m-%d-%Y")
+            self.canv.drawString(0, self.height - 44, f"Continuous Stay Verification   |   As of: {as_of_display}   |   Generated: {now_str}")
+        else:
+            self.canv.drawString(0, self.height - 44, f"Continuous Stay & Extended Occupancy Verification   |   Generated: {now_str}")
 
         # Right side: Prominent Total Count Card
         card_w = 145
@@ -354,7 +424,7 @@ class MetricCardsFlowable(Flowable):
                 "border": "#194a3e"
             },
             {
-                "tier": "30–89 NIGHTS",
+                "tier": "30+ DAYS",
                 "count": self.counts.get("30+", 0),
                 "badge": "COUNTY EXEMPT ONLY",
                 "sub": "Local transient exempt",
@@ -531,7 +601,8 @@ class ConfGridFlowable(Flowable):
 def generate_long_stay_pdf(
     property_name: str,
     stays: List[Dict[str, Any]],
-    counts: Dict[str, int]
+    counts: Dict[str, int],
+    as_of_date: Optional[datetime.date] = None
 ) -> bytes:
     """
     Renders an executive, highly intuitive continuous long-stay monitoring report.
@@ -550,7 +621,7 @@ def generate_long_stay_pdf(
     story = []
 
     # 1. Executive Top Header Banner
-    story.append(ExecutiveBannerFlowable(property_name, len(stays), width=usable_width, height=46))
+    story.append(ExecutiveBannerFlowable(property_name, len(stays), width=usable_width, height=46, as_of_date=as_of_date))
     story.append(Spacer(1, 10))
 
     # 2. Executive 4-Card Metric Grid
@@ -611,7 +682,8 @@ def generate_long_stay_pdf(
 
     tier_labels = {
         "90+ Nights": ("90+ DAYS CONTINUOUS  •  STATE & COUNTY TAX EXEMPT (FULL RESIDENCY)", "#10b981", "#122b24"),
-        "30–89 Nights": ("30–89 DAYS CONTINUOUS  •  COUNTY TAX EXEMPT ONLY (LOCAL RESIDENCY)", "#f43f5e", "#2a121e"),
+        "30+ Days": ("30+ DAYS CONTINUOUS  •  COUNTY TAX EXEMPT ONLY (LOCAL RESIDENCY)", "#f43f5e", "#2a121e"),
+        "30–89 Nights": ("30+ DAYS CONTINUOUS  •  COUNTY TAX EXEMPT ONLY (LOCAL RESIDENCY)", "#f43f5e", "#2a121e"),
         "21–29 Nights": ("21–29 DAYS CONTINUOUS  •  APPROACHING 30-DAY COUNTY EXEMPTION", "#f59e0b", "#2a1f12"),
         "7–20 Nights": ("7–20 DAYS CONTINUOUS  •  WEEKLY EXTENDED OCCUPANCY", "#38bdf8", "#122338"),
         "30+ Nights": ("30+ DAYS CONTINUOUS  •  MONTHLY RESIDENCY (TAX ALERT)", "#f43f5e", "#2a121e"),
@@ -622,7 +694,8 @@ def generate_long_stay_pdf(
 
     tier_pills = {
         "90+ Nights": ("90+ Nights", "#194a3e", "#10b981"),
-        "30–89 Nights": ("30–89 Nights", "#4c1d30", "#f43f5e"),
+        "30+ Days": ("30+ Days", "#4c1d30", "#f43f5e"),
+        "30–89 Nights": ("30+ Days", "#4c1d30", "#f43f5e"),
         "21–29 Nights": ("21–29 Nights", "#4d3516", "#f59e0b"),
         "7–20 Nights": ("7–20 Nights", "#1e3759", "#38bdf8"),
         "30+ Nights": ("30+ Nights", "#4c1d30", "#f43f5e"),
@@ -682,8 +755,8 @@ def generate_long_stay_pdf(
             ]
 
             # 2. Stay Period column
-            c_in_str = s["check_in"].strftime("%b %d, %Y")
-            c_out_str = s["check_out"].strftime("%b %d, %Y")
+            c_in_str = s["check_in"].strftime("%m-%d-%Y")
+            c_out_str = s["check_out"].strftime("%m-%d-%Y")
             period_cell = [
                 Paragraph(f"{c_in_str}  →  {c_out_str}", date_range_style),
                 Paragraph(f"Unbroken continuous stay", date_sub_style)
@@ -709,8 +782,8 @@ def generate_long_stay_pdf(
             ]
 
             # 4. Tax Exemption Dates column
-            county_str = s["county_exempt_date"].strftime("%b %d, %Y") if s.get("county_exempt_date") else "N/A"
-            state_str = s["state_exempt_date"].strftime("%b %d, %Y") if s.get("state_exempt_date") else "N/A"
+            county_str = s["county_exempt_date"].strftime("%m-%d-%Y") if s.get("county_exempt_date") else "N/A"
+            state_str = s["state_exempt_date"].strftime("%m-%d-%Y") if s.get("state_exempt_date") else "N/A"
             tax_status_str = s.get("tax_status", "")
 
             status_color = "#10b981" if s["total_nights"] >= 90 else ("#f43f5e" if s["total_nights"] >= 30 else ("#f59e0b" if s["total_nights"] >= 21 else "#94a3b8"))

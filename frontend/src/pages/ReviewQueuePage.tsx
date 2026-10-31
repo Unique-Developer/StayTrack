@@ -12,6 +12,7 @@ import {
 import { api } from '../services/api';
 import { ReviewQueueData } from '../types';
 import { useProperty } from '../context/PropertyContext';
+import { formatMMDDYYYY } from '../utils/dateUtils';
 
 export const ReviewQueuePage: React.FC = () => {
   const { currentPropertyId, currentProperty } = useProperty();
@@ -460,7 +461,7 @@ export const ReviewQueuePage: React.FC = () => {
                             #{m.record?.confirmation_number || 'None'}
                           </strong>
                         </div>
-                        <div className="text-slate-400">Report Date: {m.record?.report_date}</div>
+                        <div className="text-slate-400">Report Date: {formatMMDDYYYY(m.record?.report_date)}</div>
                       </div>
 
                       {/* Right: Candidate Identity */}

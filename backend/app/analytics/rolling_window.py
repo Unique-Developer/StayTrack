@@ -38,6 +38,9 @@ def calculate_rolling_window(db: Session, property_id: int) -> Dict[str, Any]:
     )
 
     if not reports:
+        # Clear existing entries for this property if all reports are gone
+        db.query(ReportingCalendar).filter(ReportingCalendar.property_id == property_id).delete()
+        db.flush()
         return {
             "window_size_setting": window_limit,
             "total_reporting_dates": 0,

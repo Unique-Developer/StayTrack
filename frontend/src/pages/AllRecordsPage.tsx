@@ -4,6 +4,8 @@ import { api } from '../services/api';
 import { GuestRecordItem } from '../types';
 import { GuestDetailModal } from '../components/GuestDetailModal';
 import { useProperty } from '../context/PropertyContext';
+import { formatMMDDYYYY } from '../utils/dateUtils';
+import { DateInput } from '../components/DateInput';
 
 export const AllRecordsPage: React.FC = () => {
   const { currentPropertyId, currentProperty } = useProperty();
@@ -91,11 +93,11 @@ export const AllRecordsPage: React.FC = () => {
         <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs">
           <Calendar className="w-3.5 h-3.5 text-amber-400" />
           <span className="text-slate-400">Date:</span>
-          <input
-            type="date"
+          <DateInput
             value={reportDate}
-            onChange={(e) => setReportDate(e.target.value)}
-            className="bg-transparent text-white font-mono focus:outline-none"
+            onChange={(val) => setReportDate(val)}
+            placeholder="mm-dd-yyyy"
+            className="bg-transparent text-white font-mono focus:outline-none w-28"
           />
           {reportDate && (
             <button
@@ -148,7 +150,7 @@ export const AllRecordsPage: React.FC = () => {
                     onClick={() => r.guest_identity_id && setSelectedGuestId(r.guest_identity_id)}
                     className="hover:bg-slate-800/40 transition-colors cursor-pointer group"
                   >
-                    <td className="py-3 px-4 font-mono text-amber-300 font-semibold">{r.report_date}</td>
+                    <td className="py-3 px-4 font-mono text-amber-300 font-semibold">{formatMMDDYYYY(r.report_date)}</td>
                     <td className="py-3 px-4">
                       <span className="px-2 py-0.5 rounded bg-slate-800 text-white font-mono font-bold text-[11px] border border-slate-700">
                         {r.room_number || 'N/A'}
@@ -161,9 +163,9 @@ export const AllRecordsPage: React.FC = () => {
                       )}
                     </td>
                     <td className="py-3 px-4 font-mono text-slate-300">{r.confirmation_number || 'N/A'}</td>
-                    <td className="py-3 px-4 font-mono text-slate-300">{r.check_in_date || 'N/A'}</td>
+                    <td className="py-3 px-4 font-mono text-slate-300">{formatMMDDYYYY(r.check_in_date)}</td>
                     <td className="py-3 px-4 font-mono font-bold text-white">{r.number_of_nights ?? 'N/A'}</td>
-                    <td className="py-3 px-4 font-mono text-slate-300">{r.calculated_departure_date || 'N/A'}</td>
+                    <td className="py-3 px-4 font-mono text-slate-300">{formatMMDDYYYY(r.calculated_departure_date)}</td>
                     <td className="py-3 px-4">
                       <span className="px-1.5 py-0.5 rounded text-[10px] bg-slate-800 text-slate-300">
                         {r.status}

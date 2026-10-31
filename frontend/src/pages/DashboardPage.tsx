@@ -13,7 +13,7 @@ import {
 import { DashboardSummary } from '../types';
 import { DashboardCards } from '../components/DashboardCards';
 import { TrendChart } from '../components/TrendChart';
-import { formatNYDateTime } from '../utils/dateUtils';
+import { formatNYDateTime, formatMMDDYYYY } from '../utils/dateUtils';
 import { useProperty } from '../context/PropertyContext';
 
 interface DashboardPageProps {
@@ -47,7 +47,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ summary, onNavigat
           <div className="text-sm">
             <span className="font-bold text-amber-300">Reporting Date Gap Detected:</span> The active rolling window
             contains {summary.missing_reporting_dates_count} missing calendar date(s):{' '}
-            <strong className="text-white font-mono">{summary.missing_dates.join(', ')}</strong>. Upload reports for
+            <strong className="text-white font-mono">{summary.missing_dates.map(d => formatMMDDYYYY(d)).join(', ')}</strong>. Upload reports for
             these missing dates to maintain unbroken coverage.
           </div>
         </div>
@@ -105,7 +105,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ summary, onNavigat
                 <div className="text-xs text-slate-300 space-y-1 pt-1 border-t border-slate-700/40">
                   <div className="flex justify-between">
                     <span className="text-slate-400">Reporting Date:</span>
-                    <strong className="text-amber-300 font-mono">{summary.latest_import.report_date}</strong>
+                    <strong className="text-amber-300 font-mono">{formatMMDDYYYY(summary.latest_import.report_date)}</strong>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400">Records Extracted:</span>
@@ -167,7 +167,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ summary, onNavigat
                 summary.recent_reports.map((r) => (
                   <tr key={r.id} className="hover:bg-slate-800/40 transition-colors">
                     <td className="py-3 px-4 font-mono text-xs text-white font-semibold">{r.filename}</td>
-                    <td className="py-3 px-4 font-mono text-xs text-amber-300">{r.report_date}</td>
+                    <td className="py-3 px-4 font-mono text-xs text-amber-300">{formatMMDDYYYY(r.report_date)}</td>
                     <td className="py-3 px-4 font-mono text-xs">{r.rows}</td>
                     <td className="py-3 px-4">
                       <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">

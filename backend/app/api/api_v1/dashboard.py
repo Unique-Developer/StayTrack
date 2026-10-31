@@ -23,10 +23,9 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 @router.get("/properties", response_model=List[PropertyItem])
 def get_properties(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    db: Session = Depends(get_db)
 ):
-    """Returns all configured properties (e.g. Studio 6, Motel 6)."""
+    """Returns all configured properties (e.g. Studio 6, Motel 6). Accessible for app initialization and UI."""
     props = db.query(Property).order_by(Property.id.asc()).all()
     return [
         PropertyItem(
@@ -164,7 +163,7 @@ def get_dashboard_summary(
     trends = [
         {
             "date": r_date.isoformat(),
-            "display_date": r_date.strftime("%b %d"),
+            "display_date": r_date.strftime("%m-%d-%Y"),
             "departures_count": count
         }
         for r_date, count in trend_rows

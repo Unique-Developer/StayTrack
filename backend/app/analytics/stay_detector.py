@@ -204,7 +204,7 @@ def recalculate_all_analytics(db: Session, property_id: int):
                 date_list=json.dumps([best_span["start"].isoformat(), best_span["end"].isoformat()]),
                 confirmation_numbers=json.dumps(distinct_confs),
                 room_numbers=json.dumps(distinct_rooms),
-                evidence_source=f"Reservation check-in {best_span['start'].isoformat()} to {best_span['end'].isoformat()} ({max_duration} nights).",
+                evidence_source=f"Reservation check-in {best_span['start'].strftime('%m-%d-%Y')} to {best_span['end'].strftime('%m-%d-%Y')} ({max_duration} nights).",
                 verification_status="Verified" if is_verified else "Needs Verification",
                 notes="; ".join(v_notes) if v_notes else f"Continuous stay duration ({max_duration} days) meets threshold ({cont_threshold} days)."
             )

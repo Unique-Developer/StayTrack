@@ -136,6 +136,7 @@ def export_all_records(
     records = query.order_by(GuestRecord.check_in_date.desc()).all()
 
     output = io.StringIO()
+    output.write('\ufeff')
     writer = csv.writer(output)
     writer.writerow([
         "Report Date", "Confirmation No", "Room No", "Guest Name",
@@ -145,13 +146,13 @@ def export_all_records(
 
     for r in records:
         writer.writerow([
-            r.report.report_date.isoformat() if r.report else "",
+            r.report.report_date.strftime("%m-%d-%Y") if (r.report and r.report.report_date) else "",
             r.confirmation_number or "",
             r.room_number or "",
             r.normalized_name,
-            r.check_in_date.isoformat() if r.check_in_date else "",
+            r.check_in_date.strftime("%m-%d-%Y") if r.check_in_date else "",
             r.number_of_nights or "",
-            r.calculated_departure_date.isoformat() if r.calculated_departure_date else "",
+            r.calculated_departure_date.strftime("%m-%d-%Y") if r.calculated_departure_date else "",
             r.status or "",
             r.total_guest_balance or 0.0,
             r.actual_departed_time or "",

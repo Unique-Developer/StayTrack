@@ -330,7 +330,7 @@ def parse_departures_pdf(file_path: str, convention: str = "checkin_plus_nights"
                     
                     # Check if departure date differs from report date
                     if calc_dept_date and result.report_date and calc_dept_date != result.report_date:
-                        flags.append(f"DEPARTURE_MISMATCH_CALC_{calc_dept_date.isoformat()}")
+                        flags.append(f"DEPARTURE_MISMATCH_CALC_{calc_dept_date.strftime('%m-%d-%Y')}")
 
                     confidence = max(0.0, round(confidence, 2))
 
