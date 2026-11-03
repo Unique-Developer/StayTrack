@@ -82,7 +82,8 @@ def get_continuous_stays(
             .filter(
                 GuestRecord.guest_identity_id == identity.id,
                 UploadedReport.status == "completed",
-                UploadedReport.is_active == True
+                UploadedReport.is_active == True,
+                UploadedReport.property_id == target_property_id
             )
         )
         if not all_time and as_of_date:
@@ -229,6 +230,7 @@ def get_continuous_stays(
             )
 
             results.append({
+                "property_name": prop_name,
                 "guest_name": identity.normalized_name,
                 "guest_identity_id": identity.id,
                 "check_in": start_d,

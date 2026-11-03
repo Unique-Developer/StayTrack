@@ -12,6 +12,7 @@ export const AllRecordsPage: React.FC = () => {
   const [records, setRecords] = useState<GuestRecordItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [search, setSearch] = useState('');
   const [reportDate, setReportDate] = useState('');
   const [selectedGuestId, setSelectedGuestId] = useState<number | null>(null);
@@ -42,13 +43,25 @@ export const AllRecordsPage: React.FC = () => {
     loadRecords();
   };
 
-  const handleExport = () => {
-    const url = api.getAllRecordsExportUrl({
-      search: search || undefined,
-      report_date: reportDate || undefined,
-      property_id: currentPropertyId,
-    });
-    window.open(url, '_blank');
+  const handleExport = async () => {
+    setDownloading(true);
+    try {
+      await api.downloadAllRecordsCsv({
+        search: search || undefined,
+        report_date: reportDate || undefined,
+        property_id: currentPropertyId,
+      });
+    } catch (err: any) {
+      console.error('Direct download failed, falling back to URL download:', err);
+      const url = api.getAllRecordsExportUrl({
+        search: search || undefined,
+        report_date: reportDate || undefined,
+        property_id: currentPropertyId,
+      });
+      window.open(url, '_blank');
+    } finally {
+      setDownloading(false);
+    }
   };
 
   return (
@@ -69,10 +82,16 @@ export const AllRecordsPage: React.FC = () => {
         <div className="flex items-center gap-3">
           <button
             onClick={handleExport}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition-all cursor-pointer shadow-sm hover:border-amber-500/40"
+            disabled={downloading}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition-all cursor-pointer shadow-sm hover:border-amber-500/40 disabled:opacity-50"
+            title={`Export records strictly for ${currentProperty?.name || 'selected motel'}`}
           >
-            <Download className="w-4 h-4 text-amber-400" />
-            <span>Export CSV</span>
+            {downloading ? (
+              <Loader2 className="w-4 h-4 text-amber-400 animate-spin" />
+            ) : (
+              <Download className="w-4 h-4 text-amber-400" />
+            )}
+            <span>{downloading ? 'Exporting...' : `Export CSV (${currentProperty?.property_code === 'MOTEL6' ? 'Motel 6' : 'Studio 6'})`}</span>
           </button>
         </div>
       </div>

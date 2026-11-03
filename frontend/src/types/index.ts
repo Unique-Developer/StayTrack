@@ -82,6 +82,7 @@ export interface PreviewRecord {
 
 export interface ReportPreviewFile {
   temp_file_id: string;
+  property_id?: number;
   original_filename: string;
   file_size_bytes: number;
   file_hash: string;

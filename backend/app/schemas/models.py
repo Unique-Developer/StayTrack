@@ -45,6 +45,7 @@ class PreviewRecord(BaseModel):
 
 class ReportPreviewFile(BaseModel):
     temp_file_id: str
+    property_id: Optional[int] = None
     original_filename: str
     file_size_bytes: int
     file_hash: str

@@ -34,7 +34,7 @@ function MainApp() {
       const sum = await api.getDashboardSummary(currentPropertyId);
       setSummary(sum);
 
-      const reviewData = await api.getReviewQueue();
+      const reviewData = await api.getReviewQueue(currentPropertyId);
       setReviewCount((reviewData.pending_matches_count || 0) + (reviewData.uncertain_assessments_count || 0));
     } catch (err: any) {
       console.error('Failed to load dashboard data:', err);

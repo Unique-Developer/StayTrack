@@ -91,10 +91,18 @@ def parse_header_metadata(page: pdfplumber.page.Page, tables: List[Any]) -> Tupl
             
             # Check for property lines
             for line in lines:
-                if "STUDIO 6" in line.upper() or "MOTEL 6" in line.upper() or "-" in line:
-                    if not property_name:
-                        property_name = line
-                if re.match(r'^\d{4,6}$', line):
+                u_line = line.upper()
+                if "MOTEL 6" in u_line:
+                    property_name = line
+                    if not property_code:
+                        property_code = "MOTEL6"
+                elif "STUDIO 6" in u_line:
+                    property_name = line
+                    if not property_code:
+                        property_code = "3756"
+                elif ("-" in line or "," in line) and not property_name and not any(kw in u_line for kw in ["DEPARTURES", "PAGE", "REPORT", "DETAIL", "USER"]):
+                    property_name = line
+                if re.match(r'^\d{4,6}$', line) and not property_code:
                     property_code = line
                 if "Date:" in line:
                     date_part = line.split("Date:", 1)[1]
@@ -109,6 +117,7 @@ def parse_header_metadata(page: pdfplumber.page.Page, tables: List[Any]) -> Tupl
 
     # Fallback / reinforcement from raw page text
     raw_text = page.extract_text() or ""
+    u_raw = raw_text.upper()
     if not report_date:
         match_date = re.search(r'Date:\s*([A-Za-z]+\s+\d{1,2},?\s+\d{4})', raw_text)
         if match_date:
@@ -116,6 +125,15 @@ def parse_header_metadata(page: pdfplumber.page.Page, tables: List[Any]) -> Tupl
 
     if not run_datetime:
         run_datetime = extract_run_dt(raw_text)
+
+    if "MOTEL 6" in u_raw:
+        property_name = "MOTEL 6 - STAFFORD, VA"
+        if not property_code:
+            property_code = "MOTEL6"
+    elif "STUDIO 6" in u_raw:
+        property_name = "STUDIO 6 - STAFFORD, VA"
+        if not property_code:
+            property_code = "3756"
 
     if not property_code:
         match_code = re.search(r'\b(\d{4})\b', raw_text)

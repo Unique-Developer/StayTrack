@@ -209,6 +209,7 @@ def get_guest_monitoring(
 
 # Column configuration for custom CSV export
 CONTINUOUS_STAY_COLUMNS = {
+    "property_name": ("Motel Property", lambda s: s.get("property_name", "")),
     "guest_name": ("Guest Name", lambda s: s["guest_name"]),
     "room_number": ("Room#", lambda s: ", ".join(s.get("rooms_list", []))),
     "check_in_date": ("Check-in Date", lambda s: s["check_in"].strftime("%m-%d-%Y") if s.get("check_in") else ""),
@@ -222,6 +223,7 @@ CONTINUOUS_STAY_COLUMNS = {
     "confirmations": ("Confirmation Numbers", lambda s: ", ".join(s.get("confirmations", []))),
 }
 DEFAULT_CONTINUOUS_COLUMNS = [
+    "property_name",
     "guest_name",
     "room_number",
     "check_in_date",
@@ -235,6 +237,7 @@ DEFAULT_CONTINUOUS_COLUMNS = [
 ]
 
 REPEATED_APPEARANCE_COLUMNS = {
+    "property_name": ("Motel Property", lambda r: r.property.name if hasattr(r, "property") and r.property else ""),
     "guest_name": ("Guest Name", lambda r: r.guest_identity.normalized_name),
     "mode": ("Tracking Mode", lambda r: r.mode),
     "stay_duration_days": ("Stay Duration (Days)", lambda r: str(r.stay_duration_days)),
@@ -248,6 +251,7 @@ REPEATED_APPEARANCE_COLUMNS = {
     "notes": ("Notes", lambda r: r.notes or ""),
 }
 DEFAULT_REPEATED_COLUMNS = [
+    "property_name",
     "guest_name",
     "mode",
     "stay_duration_days",
@@ -337,17 +341,20 @@ def export_guests(
             writer.writerow([CONTINUOUS_STAY_COLUMNS[k][1](s) for k in active_keys])
 
         date_suffix = as_of_d.strftime("%m-%d-%Y") if as_of_d else get_ny_now().date().strftime("%m-%d-%Y")
-        clean_pname = prop.name.lower().replace(" ", "_").replace("-", "") if prop else "property"
+        prop_slug = "motel_6" if (prop and "MOTEL 6" in prop.name.upper()) else "studio_6"
         if mode == "continuous_stay_90":
-            csv_filename = f"staytrack_{clean_pname}_90plus_days_tax_exempt_{date_suffix}.csv"
+            csv_filename = f"staytrack_{prop_slug}_90plus_days_tax_exempt_{date_suffix}.csv"
         elif mode == "continuous_stay_30_89":
-            csv_filename = f"staytrack_{clean_pname}_30to89_days_tax_exempt_{date_suffix}.csv"
+            csv_filename = f"staytrack_{prop_slug}_30to89_days_tax_exempt_{date_suffix}.csv"
         else:
-            csv_filename = f"staytrack_{clean_pname}_30_and_90_tax_exempt_{date_suffix}.csv"
+            csv_filename = f"staytrack_{prop_slug}_30_and_90_tax_exempt_{date_suffix}.csv"
         return Response(
             content=output.getvalue(),
             media_type="text/csv",
-            headers={"Content-Disposition": f'attachment; filename="{csv_filename}"'}
+            headers={
+                "Content-Disposition": f'attachment; filename="{csv_filename}"',
+                "Access-Control-Expose-Headers": "Content-Disposition"
+            }
         )
 
     # General / Repeated appearances assessment export
@@ -390,10 +397,15 @@ def export_guests(
         writer.writerow([REPEATED_APPEARANCE_COLUMNS[k][1](r) for k in active_keys])
 
     date_suffix = as_of_d.strftime("%m-%d-%Y") if as_of_d else get_ny_now().date().strftime("%m-%d-%Y")
+    prop_slug = "motel_6" if (prop and "MOTEL 6" in prop.name.upper()) else "studio_6"
+    csv_filename = f"staytrack_{prop_slug}_repeated_appearances_{date_suffix}.csv"
     return Response(
         content=output.getvalue(),
         media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="staytrack_guest_monitoring_{date_suffix}.csv"'}
+        headers={
+            "Content-Disposition": f'attachment; filename="{csv_filename}"',
+            "Access-Control-Expose-Headers": "Content-Disposition"
+        }
     )
 
 
@@ -431,7 +443,7 @@ def export_guests_pdf(
             prop = db.query(Property).first()
 
         pid = prop.id if prop else 1
-        pname = prop.name if prop else "Motel 6"
+        pname = prop.name if prop else "Studio 6"
 
         effective_min = min_nights if isinstance(min_nights, int) else (90 if mode == "continuous_stay_90" else 30)
 
@@ -465,19 +477,20 @@ def export_guests_pdf(
         )
 
         date_suffix = as_of_d.strftime("%m-%d-%Y") if as_of_d else get_ny_now().date().strftime("%m-%d-%Y")
-        clean_pname = prop.name.lower().replace(" ", "_").replace("-", "") if prop else "property"
+        prop_slug = "motel_6" if "MOTEL 6" in pname.upper() else "studio_6"
         if mode == "continuous_stay_90":
-            filename = f"staytrack_{clean_pname}_90plus_days_tax_exempt_{date_suffix}.pdf"
+            filename = f"staytrack_{prop_slug}_90plus_days_tax_exempt_{date_suffix}.pdf"
         elif mode == "continuous_stay_30_89":
-            filename = f"staytrack_{clean_pname}_30to89_days_tax_exempt_{date_suffix}.pdf"
+            filename = f"staytrack_{prop_slug}_30to89_days_tax_exempt_{date_suffix}.pdf"
         else:
-            filename = f"staytrack_{clean_pname}_30_and_90_continuous_tax_exempt_{date_suffix}.pdf"
+            filename = f"staytrack_{prop_slug}_30_and_90_continuous_tax_exempt_{date_suffix}.pdf"
 
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",
             headers={
-                "Content-Disposition": f'inline; filename="{filename}"'
+                "Content-Disposition": f'inline; filename="{filename}"',
+                "Access-Control-Expose-Headers": "Content-Disposition"
             }
         )
     except Exception as e:
@@ -678,6 +691,14 @@ def merge_guest_identities(
     secondaries = db.query(GuestIdentity).filter(GuestIdentity.id.in_(secondary_ids)).all()
     if not secondaries:
         raise HTTPException(status_code=404, detail="No secondary guest identities found")
+
+    # Strict Property Isolation: do not allow merging across different motel properties
+    cross_prop = [s for s in secondaries if s.property_id != primary.property_id]
+    if cross_prop:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot merge guest identities across different motel properties. Motel 6 and Studio 6 guest data must remain separate."
+        )
 
     # Reassign all GuestRecord rows
     db.query(GuestRecord).filter(GuestRecord.guest_identity_id.in_(secondary_ids)).update(

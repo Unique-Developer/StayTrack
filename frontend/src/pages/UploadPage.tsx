@@ -22,7 +22,7 @@ interface UploadPageProps {
 }
 
 export const UploadPage: React.FC<UploadPageProps> = ({ onImportComplete }) => {
-  const { currentPropertyId, currentProperty } = useProperty();
+  const { properties, currentPropertyId, currentProperty } = useProperty();
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<ReportPreviewFile[]>([]);
   const [loadingPreview, setLoadingPreview] = useState(false);
@@ -60,6 +60,17 @@ export const UploadPage: React.FC<UploadPageProps> = ({ onImportComplete }) => {
     }
   };
 
+  const handlePropertyChange = (previewIndex: number, newPropertyId: number) => {
+    const updated = [...previews];
+    updated[previewIndex].property_id = newPropertyId;
+    const matchedProp = properties.find((p) => p.id === newPropertyId);
+    if (matchedProp) {
+      updated[previewIndex].property_name = matchedProp.name;
+      updated[previewIndex].property_code = matchedProp.property_code;
+    }
+    setPreviews(updated);
+  };
+
   const handleDateChange = (previewIndex: number, newDate: string) => {
     const updated = [...previews];
     updated[previewIndex].report_date = newDate;
@@ -87,7 +98,7 @@ export const UploadPage: React.FC<UploadPageProps> = ({ onImportComplete }) => {
       const payload = {
         files: previews.map((p) => ({
           temp_file_id: p.temp_file_id,
-          property_id: currentPropertyId,
+          property_id: p.property_id || currentPropertyId,
           original_filename: p.original_filename,
           report_date: p.report_date || getTodayNYDateString(),
           report_run_datetime: p.report_run_datetime,
@@ -174,7 +185,7 @@ export const UploadPage: React.FC<UploadPageProps> = ({ onImportComplete }) => {
           </span>{' '}
           <span className="text-slate-400 text-sm">or drag and drop departure reports</span>
         </div>
-        <p className="text-xs text-slate-500 mt-1">Supports Studio 6 Departure PDFs (Single or Multiple files)</p>
+        <p className="text-xs text-slate-500 mt-1">Supports Studio 6 and Motel 6 Departure PDFs (Single or Multiple files)</p>
       </div>
 
       {/* Loading Indicator */}
@@ -241,6 +252,23 @@ export const UploadPage: React.FC<UploadPageProps> = ({ onImportComplete }) => {
                 </div>
 
                 <div className="flex items-center gap-4">
+                  {/* Motel Property Selection */}
+                  <div className="flex items-center gap-2 bg-slate-800/80 border border-slate-700 px-3 py-1.5 rounded-lg">
+                    <Building2 className="w-3.5 h-3.5 text-amber-400" />
+                    <span className="text-xs text-slate-400">Motel:</span>
+                    <select
+                      value={preview.property_id || currentPropertyId}
+                      onChange={(e) => handlePropertyChange(pIdx, parseInt(e.target.value, 10))}
+                      className="bg-slate-900 text-amber-300 font-bold text-xs px-2 py-0.5 rounded border border-slate-700 focus:outline-none focus:border-amber-400 cursor-pointer"
+                    >
+                      {properties.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.property_code === 'MOTEL6' ? 'Motel 6' : 'Studio 6'} (#{p.property_code})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
                   {/* Reporting Date with Manual Override */}
                   <div className="flex items-center gap-2 bg-slate-800/80 border border-slate-700 px-3 py-1.5 rounded-lg">
                     <Calendar className="w-3.5 h-3.5 text-amber-400" />

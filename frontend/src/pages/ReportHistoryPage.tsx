@@ -131,7 +131,7 @@ export const ReportHistoryPage: React.FC = () => {
                           onClick={() => handleDownloadExcel(r)}
                           disabled={downloadingId === r.id}
                           className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-emerald-400 transition-colors cursor-pointer flex items-center gap-1"
-                          title="Download Excel Report Data (.xlsx)"
+                          title={`Download Excel Report Data for ${r.property_name} (.xlsx)`}
                         >
                           {downloadingId === r.id ? (
                             <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400" />

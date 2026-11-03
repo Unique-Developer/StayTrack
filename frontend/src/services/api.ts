@@ -315,11 +315,12 @@ export const api = {
     }
     const blob = await res.blob();
     const disposition = res.headers.get('content-disposition');
+    const propSlug = params.property_id === 2 ? 'motel_6' : 'studio_6';
     let filename = params.mode === 'continuous_stay_90'
-      ? 'staytrack_90plus_days_tax_exempt.csv'
+      ? `staytrack_${propSlug}_90plus_days_tax_exempt.csv`
       : params.mode === 'continuous_stay_30_89'
-      ? 'staytrack_30to89_days_tax_exempt.csv'
-      : 'staytrack_30_and_90_continuous_tax_exempt.csv';
+      ? `staytrack_${propSlug}_30to89_days_tax_exempt.csv`
+      : `staytrack_${propSlug}_30_and_90_continuous_tax_exempt.csv`;
     if (disposition && disposition.includes('filename=')) {
       const match = disposition.match(/filename=["']?([^"';]+)["']?/);
       if (match && match[1]) filename = match[1];
@@ -418,6 +419,41 @@ export const api = {
     const token = getStoredToken();
     if (token) searchParams.append('token', token);
     return `${API_BASE}/records/export?${searchParams.toString()}`;
+  },
+
+  async downloadAllRecordsCsv(params: {
+    search?: string;
+    report_date?: string;
+    room?: string;
+    property_id?: number;
+  }): Promise<void> {
+    const searchParams = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') searchParams.append(k, String(v));
+    });
+    const token = getStoredToken();
+    if (token) searchParams.append('token', token);
+
+    const res = await fetchWithTimeout(`${API_BASE}/records/export?${searchParams.toString()}`);
+    if (!res.ok) {
+      throw new Error(`Failed to download records export (${res.status}: ${res.statusText})`);
+    }
+    const blob = await res.blob();
+    const disposition = res.headers.get('content-disposition');
+    const propSlug = params.property_id === 2 ? 'motel_6' : 'studio_6';
+    let filename = `staytrack_${propSlug}_all_guest_records.csv`;
+    if (disposition && disposition.includes('filename=')) {
+      const match = disposition.match(/filename=["']?([^"';]+)["']?/);
+      if (match && match[1]) filename = match[1];
+    }
+    const downloadUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(downloadUrl);
   },
 
   // Review Queue

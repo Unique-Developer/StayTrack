@@ -1,13 +1,15 @@
 import csv
 import io
 import json
+from datetime import date
 from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, desc, asc
 from app.db.session import get_db
-from app.db.models import GuestRecord, UploadedReport, GuestIdentity, User
+from app.db.models import GuestRecord, UploadedReport, GuestIdentity, Property, User
+from app.core.time_utils import get_ny_now
 from app.api.deps import get_current_user
 
 router = APIRouter(prefix="/records", tags=["records"])
@@ -25,22 +27,33 @@ def get_all_records(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    target_property_id = property_id
+    if not target_property_id:
+        prop = db.query(Property).first()
+        target_property_id = prop.id if prop else 1
+
     query = (
         db.query(GuestRecord)
         .join(UploadedReport, GuestRecord.report_id == UploadedReport.id)
-        .filter(UploadedReport.is_active == True)
+        .filter(
+            UploadedReport.is_active == True,
+            UploadedReport.property_id == target_property_id
+        )
     )
 
-    if property_id:
-        query = query.filter(UploadedReport.property_id == property_id)
-
-    if report_date:
+    if report_date and isinstance(report_date, str):
+        try:
+            parsed_date = date.fromisoformat(report_date)
+            query = query.filter(UploadedReport.report_date == parsed_date)
+        except Exception:
+            query = query.filter(UploadedReport.report_date == report_date)
+    elif report_date and isinstance(report_date, date):
         query = query.filter(UploadedReport.report_date == report_date)
 
-    if room:
+    if room and isinstance(room, str):
         query = query.filter(GuestRecord.room_number == room)
 
-    if search:
+    if search and isinstance(search, str):
         s = f"%{search.strip().upper()}%"
         query = query.filter(
             or_(
@@ -112,18 +125,38 @@ def export_all_records(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    target_prop = None
+    if property_id:
+        target_prop = db.query(Property).filter(Property.id == property_id).first()
+    if not target_prop:
+        target_prop = db.query(Property).first()
+
+    target_prop_id = target_prop.id if target_prop else 1
+    prop_name = target_prop.name if target_prop else "Motel Property"
+    prop_code = target_prop.property_code if target_prop else ""
+    prop_slug = "motel_6" if "MOTEL 6" in prop_name.upper() else "studio_6"
+
     query = (
         db.query(GuestRecord)
         .join(UploadedReport, GuestRecord.report_id == UploadedReport.id)
-        .filter(UploadedReport.is_active == True)
+        .filter(
+            UploadedReport.is_active == True,
+            UploadedReport.property_id == target_prop_id
+        )
     )
-    if property_id:
-        query = query.filter(UploadedReport.property_id == property_id)
-    if report_date:
+    if report_date and isinstance(report_date, str):
+        try:
+            parsed_date = date.fromisoformat(report_date)
+            query = query.filter(UploadedReport.report_date == parsed_date)
+        except Exception:
+            query = query.filter(UploadedReport.report_date == report_date)
+    elif report_date and isinstance(report_date, date):
         query = query.filter(UploadedReport.report_date == report_date)
-    if room:
+
+    if room and isinstance(room, str):
         query = query.filter(GuestRecord.room_number == room)
-    if search:
+
+    if search and isinstance(search, str):
         s = f"%{search.strip().upper()}%"
         query = query.filter(
             or_(
@@ -139,13 +172,15 @@ def export_all_records(
     output.write('\ufeff')
     writer = csv.writer(output)
     writer.writerow([
-        "Report Date", "Confirmation No", "Room No", "Guest Name",
+        "Property", "Property Code", "Report Date", "Confirmation No", "Room No", "Guest Name",
         "Check In Date", "Nights", "Calculated Departure", "Status",
         "Balance", "Departed Time", "VIP", "Additional Guests"
     ])
 
     for r in records:
         writer.writerow([
+            prop_name,
+            prop_code,
             r.report.report_date.strftime("%m-%d-%Y") if (r.report and r.report.report_date) else "",
             r.confirmation_number or "",
             r.room_number or "",
@@ -160,8 +195,14 @@ def export_all_records(
             r.additional_guests or ""
         ])
 
+    date_str = get_ny_now().date().strftime("%m-%d-%Y")
+    csv_filename = f"staytrack_{prop_slug}_all_guest_records_{date_str}.csv"
+
     return Response(
         content=output.getvalue(),
         media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=staytrack_all_guest_records.csv"}
+        headers={
+            "Content-Disposition": f'attachment; filename="{csv_filename}"',
+            "Access-Control-Expose-Headers": "Content-Disposition"
+        }
     )

@@ -37,6 +37,7 @@ interface ExportColumnOption {
 }
 
 const CONTINUOUS_STAY_COLUMNS: ExportColumnOption[] = [
+  { key: 'property_name', label: 'Motel Property', desc: 'Motel name & property code (Studio 6 vs Motel 6)', defaultSelected: true },
   { key: 'guest_name', label: 'Guest Name', desc: 'Normalized primary guest name', defaultSelected: true },
   { key: 'room_number', label: 'Room#', desc: 'Occupied room number(s)', defaultSelected: true },
   { key: 'check_in_date', label: 'Check-in Date', desc: 'Original continuous check-in date', defaultSelected: true },
@@ -51,6 +52,7 @@ const CONTINUOUS_STAY_COLUMNS: ExportColumnOption[] = [
 ];
 
 const REPEATED_APPEARANCE_COLUMNS: ExportColumnOption[] = [
+  { key: 'property_name', label: 'Motel Property', desc: 'Motel name & property code (Studio 6 vs Motel 6)', defaultSelected: true },
   { key: 'guest_name', label: 'Guest Name', desc: 'Normalized primary guest name', defaultSelected: true },
   { key: 'mode', label: 'Tracking Mode', desc: 'Monitoring mode indicator', defaultSelected: true },
   { key: 'stay_duration_days', label: 'Stay Duration (Days)', desc: 'Total appearance count', defaultSelected: true },
@@ -334,23 +336,23 @@ export const GuestMonitoringPage: React.FC = () => {
             onClick={openExportDialog}
             disabled={downloadingCsv}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition-all shadow-sm hover:border-amber-500/40 disabled:opacity-60 cursor-pointer"
-            title="Customize columns and export CSV"
+            title={`Customize columns and export CSV strictly for ${currentProperty?.name || 'selected motel'}`}
           >
             {downloadingCsv ? (
               <Loader2 className="w-4 h-4 text-amber-400 animate-spin" />
             ) : (
               <Download className="w-4 h-4 text-amber-400" />
             )}
-            <span>{downloadingCsv ? 'Exporting...' : 'Export CSV'}</span>
+            <span>{downloadingCsv ? 'Exporting...' : `Export CSV (${currentProperty?.property_code === 'MOTEL6' ? 'Motel 6' : 'Studio 6'})`}</span>
           </button>
 
           <button
             onClick={handleExportPdf}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition-all shadow-sm hover:border-rose-500/40 cursor-pointer"
-            title="Export High-Fidelity Long-Stay PDF Report"
+            title={`Export High-Fidelity Long-Stay PDF Report strictly for ${currentProperty?.name || 'selected motel'}`}
           >
             <FileText className="w-4 h-4 text-rose-400" />
-            <span>Export PDF</span>
+            <span>Export PDF ({currentProperty?.property_code === 'MOTEL6' ? 'Motel 6' : 'Studio 6'})</span>
           </button>
         </div>
       </div>
@@ -1123,6 +1125,25 @@ export const GuestMonitoringPage: React.FC = () => {
             </div>
 
             <div className="space-y-4 overflow-y-auto flex-1 pr-1">
+              {/* Active Motel Banner */}
+              <div className="p-3.5 rounded-xl bg-slate-950/90 border border-amber-500/30 flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <Building2 className="w-5 h-5 text-amber-400 shrink-0" />
+                  <div>
+                    <div className="text-xs font-bold text-white flex items-center gap-2">
+                      <span>Exporting for:</span>
+                      <span className="text-amber-400 font-extrabold">{currentProperty?.name || 'Selected Motel'}</span>
+                      <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300">
+                        #{currentProperty?.property_code || ''}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-slate-400 mt-0.5">
+                      This report strictly contains data only for {currentProperty?.property_code === 'MOTEL6' ? 'Motel 6' : 'Studio 6'}. Both motel datasets remain completely separate.
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               {/* Date Selection Box */}
               <div className="p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 space-y-2">
                 <div className="text-[11px] font-bold uppercase tracking-wider text-slate-300 flex items-center justify-between">

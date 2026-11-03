@@ -58,6 +58,8 @@ async def preview_reports(
     property_id = target_property_id
     results = []
 
+    all_props = db.query(Property).all()
+
     for file in files:
         if not file.filename.lower().endswith(".pdf"):
             continue
@@ -82,13 +84,39 @@ async def preview_reports(
         # 2. Parse PDF
         parsed = parse_departures_pdf(str(staging_path))
 
-        # 3. Check if report for this date already exists
+        # Detect destination motel from PDF content or filename
+        detected_prop = None
+        if parsed.property_code:
+            for p in all_props:
+                if p.property_code and (p.property_code.upper() == parsed.property_code.upper()):
+                    detected_prop = p
+                    break
+        if not detected_prop and parsed.property_name:
+            pname_upper = parsed.property_name.upper()
+            if "MOTEL 6" in pname_upper or "MOTEL6" in pname_upper:
+                detected_prop = next((p for p in all_props if "MOTEL 6" in p.name.upper() or p.property_code == "MOTEL6"), None)
+            elif "STUDIO 6" in pname_upper or "STUDIO6" in pname_upper:
+                detected_prop = next((p for p in all_props if "STUDIO 6" in p.name.upper() or p.property_code == "3756"), None)
+        if not detected_prop and file.filename:
+            fn_upper = file.filename.upper()
+            if "MOTEL 6" in fn_upper or "MOTEL6" in fn_upper:
+                detected_prop = next((p for p in all_props if "MOTEL 6" in p.name.upper() or p.property_code == "MOTEL6"), None)
+            elif "STUDIO 6" in fn_upper or "STUDIO6" in fn_upper:
+                detected_prop = next((p for p in all_props if "STUDIO 6" in p.name.upper() or p.property_code == "3756"), None)
+
+        # Fallback to selected property_id
+        resolved_prop = detected_prop or (db.query(Property).filter(Property.id == property_id).first() if property_id else db.query(Property).first())
+        file_prop_id = resolved_prop.id if resolved_prop else 1
+        file_prop_name = resolved_prop.name if resolved_prop else (parsed.property_name or "Studio 6")
+        file_prop_code = resolved_prop.property_code if resolved_prop else (parsed.property_code or "3756")
+
+        # 3. Check if report for this date already exists for this specific motel
         existing_report_date = None
         if parsed.report_date:
             existing_report_date = (
                 db.query(UploadedReport)
                 .filter(
-                    UploadedReport.property_id == property_id,
+                    UploadedReport.property_id == file_prop_id,
                     UploadedReport.report_date == parsed.report_date,
                     UploadedReport.status == "completed",
                     UploadedReport.is_active == True
@@ -98,14 +126,15 @@ async def preview_reports(
 
         preview_file = ReportPreviewFile(
             temp_file_id=temp_id,
+            property_id=file_prop_id,
             original_filename=file.filename,
             file_size_bytes=file_size,
             file_hash=file_hash,
             is_duplicate=existing_report_hash is not None,
             duplicate_report_id=existing_report_hash.id if existing_report_hash else None,
             existing_report_for_date_id=existing_report_date.id if existing_report_date else None,
-            property_name=parsed.property_name,
-            property_code=parsed.property_code,
+            property_name=file_prop_name,
+            property_code=file_prop_code,
             report_date=parsed.report_date.isoformat() if parsed.report_date else None,
             report_run_datetime=parsed.report_run_datetime,
             generated_by=parsed.generated_by,
@@ -154,7 +183,18 @@ async def commit_reports(
         if not rep_date:
             raise HTTPException(status_code=400, detail=f"Invalid report date: {item.report_date}")
 
-        target_prop_id = item.property_id or property_id
+        target_prop = None
+        if item.property_id:
+            target_prop = db.query(Property).filter(Property.id == item.property_id).first()
+        if not target_prop and item.original_filename:
+            fn_upper = item.original_filename.upper()
+            if "MOTEL 6" in fn_upper or "MOTEL6" in fn_upper:
+                target_prop = db.query(Property).filter(Property.property_code == "MOTEL6").first()
+            elif "STUDIO 6" in fn_upper or "STUDIO6" in fn_upper:
+                target_prop = db.query(Property).filter(Property.property_code == "3756").first()
+        if not target_prop:
+            target_prop = prop
+        target_prop_id = target_prop.id if target_prop else 1
         affected_property_ids.add(target_prop_id)
 
         # Handle replacement if indicated
@@ -263,9 +303,12 @@ def get_reports(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    query = db.query(UploadedReport)
-    if property_id:
-        query = query.filter(UploadedReport.property_id == property_id)
+    target_prop_id = property_id
+    if not target_prop_id:
+        prop = db.query(Property).first()
+        target_prop_id = prop.id if prop else 1
+
+    query = db.query(UploadedReport).filter(UploadedReport.property_id == target_prop_id)
     reports = (
         query
         .order_by(UploadedReport.report_date.desc(), UploadedReport.created_at.desc())
@@ -273,11 +316,12 @@ def get_reports(
     )
     result = []
     for r in reports:
+        prop_display = r.property.name if r.property else ("MOTEL 6 - STAFFORD, VA" if r.property_id == 2 else "STUDIO 6 - STAFFORD, VA")
         result.append(
             ReportResponse(
                 id=r.id,
                 property_id=r.property_id,
-                property_name=r.property.name if r.property else "Studio 6",
+                property_name=prop_display,
                 original_filename=r.original_filename,
                 file_size_bytes=r.file_size_bytes,
                 report_date=r.report_date.isoformat(),
@@ -315,9 +359,14 @@ def download_report(
     )
 
     excel_buf = generate_report_excel(report, records)
+    prop_name = report.property.name if report.property else ("MOTEL 6" if report.property_id == 2 else "STUDIO 6")
+    prop_slug = "motel_6" if "MOTEL 6" in prop_name.upper() else "studio_6"
     stem = Path(report.original_filename).stem if report.original_filename else f"report_{report.report_date}"
     clean_stem = "".join(c for c in stem if c.isalnum() or c in "._- ")
-    export_filename = f"{clean_stem}_data.xlsx"
+    if not clean_stem.startswith(f"staytrack_{prop_slug}"):
+        export_filename = f"staytrack_{prop_slug}_{clean_stem}.xlsx"
+    else:
+        export_filename = f"{clean_stem}.xlsx"
 
     log_audit(
         db,

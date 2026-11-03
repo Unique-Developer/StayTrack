@@ -71,7 +71,8 @@ def recalculate_all_analytics(db: Session, property_id: int):
             .filter(
                 GuestRecord.guest_identity_id == identity.id,
                 UploadedReport.status == "completed",
-                UploadedReport.is_active == True
+                UploadedReport.is_active == True,
+                UploadedReport.property_id == property_id
             )
             .order_by(GuestRecord.check_in_date.asc(), UploadedReport.report_date.asc())
             .all()
